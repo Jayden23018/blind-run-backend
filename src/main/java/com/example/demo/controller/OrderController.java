@@ -5,7 +5,9 @@ import com.example.demo.dto.OrderDetailResponse;
 import com.example.demo.dto.OrderResponse;
 import com.example.demo.entity.OrderStatus;
 import com.example.demo.entity.RunOrder;
+import com.example.demo.entity.User;
 import com.example.demo.repository.RunOrderRepository;
+import com.example.demo.repository.UserRepository;
 import com.example.demo.service.OrderService;
 import com.example.demo.service.VolunteerLocationService;
 import jakarta.validation.Valid;
@@ -41,12 +43,15 @@ public class OrderController {
     private final OrderService orderService;
     private final RunOrderRepository runOrderRepository;
     private final VolunteerLocationService volunteerLocationService;
+    private final UserRepository userRepository;
 
     public OrderController(OrderService orderService, RunOrderRepository runOrderRepository,
-                           VolunteerLocationService volunteerLocationService) {
+                           VolunteerLocationService volunteerLocationService,
+                           UserRepository userRepository) {
         this.orderService = orderService;
         this.runOrderRepository = runOrderRepository;
         this.volunteerLocationService = volunteerLocationService;
+        this.userRepository = userRepository;
     }
 
     @PostMapping
@@ -116,12 +121,19 @@ public class OrderController {
 
     @GetMapping("/mine")
     public ResponseEntity<Page<OrderDetailResponse>> getMyOrders(
-            @RequestParam String role,
+            @RequestParam(required = false) String role,
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
 
         Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+
+        // 不传 role 时，自动从用户信息获取
+        if (role == null || role.isBlank()) {
+            User user = userRepository.findById(userId).orElseThrow();
+            role = user.getRole().name();
+        }
+
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<RunOrder> orders;
 

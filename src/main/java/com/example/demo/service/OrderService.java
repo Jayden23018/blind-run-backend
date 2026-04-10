@@ -117,7 +117,7 @@ public class OrderService {
         RunOrder order = runOrderRepository.findById(orderId)
                 .orElseThrow(() -> new OrderNotFoundException("订单不存在，ID: " + orderId));
 
-        if (order.getStatus() != OrderStatus.PENDING_ACCEPT) {
+        if (order.getStatus() != OrderStatus.PENDING_MATCH && order.getStatus() != OrderStatus.PENDING_ACCEPT) {
             throw new OrderStatusException("订单已被其他志愿者接单或已取消");
         }
 
@@ -242,7 +242,8 @@ public class OrderService {
      * @return 附近可接订单列表，按距离升序
      */
     public List<AvailableOrderResponse> getAvailableOrders(Long volunteerId, double volunteerLat, double volunteerLng) {
-        List<RunOrder> pendingOrders = runOrderRepository.findByStatus(OrderStatus.PENDING_ACCEPT);
+        List<RunOrder> pendingOrders = runOrderRepository.findByStatusIn(
+                List.of(OrderStatus.PENDING_MATCH, OrderStatus.PENDING_ACCEPT));
 
         List<AvailableOrderResponse> result = new ArrayList<>();
         for (RunOrder order : pendingOrders) {

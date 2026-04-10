@@ -52,4 +52,8 @@ public interface RunOrderRepository extends JpaRepository<RunOrder, Long> {
     /** 查询指定状态的所有订单（含盲人用户信息） */
     @Query("SELECT o FROM RunOrder o JOIN FETCH o.blindUser WHERE o.status = :status")
     List<RunOrder> findByStatus(@Param("status") OrderStatus status);
+
+    /** 查询多种状态的所有订单（含盲人用户信息） */
+    @Query("SELECT o FROM RunOrder o JOIN FETCH o.blindUser WHERE o.status IN :statuses")
+    List<RunOrder> findByStatusIn(@Param("statuses") List<OrderStatus> statuses);
 }
