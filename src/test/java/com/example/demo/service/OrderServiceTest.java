@@ -44,11 +44,25 @@ class OrderServiceTest {
     @Mock
     private VolunteerProfileRepository volunteerProfileRepository;
 
+    @Mock
+    private OrderStatusLogService statusLogService;
+
+    @Mock
+    private EmergencyContactService emergencyContactService;
+
+    @Mock
+    private NotificationService notificationService;
+
+    @Mock
+    private ProximityService proximityService;
+
     private OrderService orderService;
 
     @BeforeEach
     void setUp() {
-        orderService = new OrderService(runOrderRepository, userRepository, eventPublisher, volunteerProfileRepository);
+        orderService = new OrderService(runOrderRepository, userRepository, eventPublisher,
+                volunteerProfileRepository, statusLogService, emergencyContactService,
+                notificationService, proximityService);
     }
 
     /** 正常创建订单 */
@@ -63,6 +77,7 @@ class OrderServiceTest {
 
         when(runOrderRepository.existsByBlindUserIdAndStatusIn(anyLong(), anyList()))
                 .thenReturn(false);
+        when(emergencyContactService.hasContacts(anyLong())).thenReturn(true);
         when(runOrderRepository.save(any(RunOrder.class))).thenAnswer(invocation -> {
             RunOrder order = invocation.getArgument(0);
             order.setId(1001L);
@@ -122,9 +137,13 @@ class OrderServiceTest {
     /** 接单成功 → IN_PROGRESS */
     @Test
     void testAcceptOrderSuccess() {
+        User blindUser = new User();
+        blindUser.setId(1L);
+
         RunOrder order = new RunOrder();
         order.setId(1001L);
         order.setStatus(OrderStatus.PENDING_ACCEPT);
+        order.setBlindUser(blindUser);
 
         // 模拟已认证的志愿者
         com.example.demo.entity.VolunteerProfile profile = new com.example.demo.entity.VolunteerProfile();
@@ -141,7 +160,7 @@ class OrderServiceTest {
         assertNotNull(order.getAcceptedAt());
     }
 
-    /** 接单失败：状态不是 PENDING_ACCEPT */
+    /** 接单失败：状态不是 PENDING_ACCEPT 或 PENDING_MATCH */
     @Test
     void testAcceptOrderWrongStatus() {
         com.example.demo.entity.VolunteerProfile profile = new com.example.demo.entity.VolunteerProfile();
@@ -150,7 +169,7 @@ class OrderServiceTest {
 
         RunOrder order = new RunOrder();
         order.setId(1001L);
-        order.setStatus(OrderStatus.PENDING_MATCH);
+        order.setStatus(OrderStatus.COMPLETED);
 
         when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
 
@@ -172,12 +191,16 @@ class OrderServiceTest {
     /** 结束服务成功 → COMPLETED */
     @Test
     void testFinishOrderSuccess() {
+        User blindUser = new User();
+        blindUser.setId(1L);
+
         User volunteer = new User();
         volunteer.setId(2L);
 
         RunOrder order = new RunOrder();
         order.setId(1001L);
         order.setStatus(OrderStatus.IN_PROGRESS);
+        order.setBlindUser(blindUser);
         order.setVolunteer(volunteer);
 
         when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
@@ -219,5 +242,35 @@ class OrderServiceTest {
         when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
 
         assertThrows(OrderStatusException.class, () -> orderService.finishOrder(1001L, 2L));
+    }
+
+    /** 从 REMATCHING 状态接单成功 → IN_PROGRESS，清除 rematchNotifyAt */
+    @Test
+    void testAcceptOrderFromRematching() {
+        User blindUser = new User();
+        blindUser.setId(1L);
+
+        RunOrder order = new RunOrder();
+        order.setId(1001L);
+        order.setStatus(OrderStatus.REMATCHING);
+        order.setBlindUser(blindUser);
+
+        com.example.demo.entity.VolunteerProfile profile = new com.example.demo.entity.VolunteerProfile();
+        profile.setVerified(true);
+        when(volunteerProfileRepository.findByUserId(2L)).thenReturn(Optional.of(profile));
+
+        when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
+        when(runOrderRepository.save(any(RunOrder.class))).thenReturn(order);
+        when(userRepository.getReferenceById(2L)).thenReturn(new User());
+
+        orderService.acceptOrder(1001L, 2L);
+
+        assertEquals(OrderStatus.IN_PROGRESS, order.getStatus());
+        assertNotNull(order.getAcceptedAt());
+        // 验证清除了重新匹配提醒时间
+        assertNull(order.getRematchNotifyAt());
+        // 验证发送了"新志愿者"通知
+        verify(notificationService).sendOrderStatusChange(eq(1001L), eq("REMATCHING"), eq("IN_PROGRESS"),
+                eq(1L), eq(2L), contains("新的志愿者"));
     }
 }

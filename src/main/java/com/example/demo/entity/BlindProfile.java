@@ -23,15 +23,6 @@ public class BlindProfile {
 
     private String name;
 
-    @Column(name = "emergency_contact_name")
-    private String emergencyContactName;
-
-    @Column(name = "emergency_contact_phone")
-    private String emergencyContactPhone;
-
-    @Column(name = "emergency_contact_relation")
-    private String emergencyContactRelation;
-
     @Column(name = "running_pace")
     private String runningPace;
 

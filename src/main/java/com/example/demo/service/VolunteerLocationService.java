@@ -1,9 +1,13 @@
 package com.example.demo.service;
 
+import com.example.demo.entity.OrderStatus;
+import com.example.demo.entity.RunOrder;
 import com.example.demo.entity.User;
 import com.example.demo.entity.VolunteerLocation;
+import com.example.demo.repository.RunOrderRepository;
 import com.example.demo.repository.UserRepository;
 import com.example.demo.repository.VolunteerLocationRepository;
+import com.example.demo.websocket.UnifiedSessionRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,6 +42,10 @@ public class VolunteerLocationService {
     private final UserRepository userRepository;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
+    private final RunOrderRepository runOrderRepository;
+    private final UnifiedSessionRegistry sessionRegistry;
+    private final ProximityService proximityService;
+    private final BlindLocationService blindLocationService;
 
     /** Redis key 前缀 */
     private static final String REDIS_KEY_PREFIX = "vol:loc:";
@@ -49,11 +57,19 @@ public class VolunteerLocationService {
     public VolunteerLocationService(VolunteerLocationRepository locationRepository,
                                      UserRepository userRepository,
                                      StringRedisTemplate redisTemplate,
-                                     ObjectMapper objectMapper) {
+                                     ObjectMapper objectMapper,
+                                     RunOrderRepository runOrderRepository,
+                                     UnifiedSessionRegistry sessionRegistry,
+                                     ProximityService proximityService,
+                                     BlindLocationService blindLocationService) {
         this.locationRepository = locationRepository;
         this.userRepository = userRepository;
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
+        this.runOrderRepository = runOrderRepository;
+        this.sessionRegistry = sessionRegistry;
+        this.proximityService = proximityService;
+        this.blindLocationService = blindLocationService;
     }
 
     /**
@@ -103,6 +119,68 @@ public class VolunteerLocationService {
         } catch (Exception e) {
             // Redis 写入失败不影响主流程，记录警告日志
             log.warn("Redis 写入志愿者 {} 位置失败: {}", userId, e.getMessage());
+        }
+
+        // 3. 实时位置转发：如果志愿者有进行中的订单，推送位置给对应的盲人用户
+        forwardLocationToBlind(userId, latitude, longitude);
+    }
+
+    /**
+     * 将志愿者位置转发给对应订单的盲人用户
+     * 只在订单状态为 DRIVER_EN_ROUTE 或 DRIVER_ARRIVED 时推送
+     */
+    private void forwardLocationToBlind(Long volunteerId, Double latitude, Double longitude) {
+        try {
+            List<RunOrder> activeOrders = runOrderRepository.findByVolunteerIdAndStatusInFetchBlind(
+                    volunteerId,
+                    List.of(OrderStatus.DRIVER_EN_ROUTE, OrderStatus.DRIVER_ARRIVED)
+            );
+
+            if (activeOrders.isEmpty()) {
+                return;
+            }
+
+            for (RunOrder order : activeOrders) {
+                Long blindUserId = order.getBlindUser().getId();
+                Map<String, Object> msg = new HashMap<>();
+                msg.put("type", "VOLUNTEER_LOCATION_UPDATE");
+                msg.put("orderId", order.getId());
+                msg.put("lat", latitude);
+                msg.put("lng", longitude);
+                msg.put("timestamp", System.currentTimeMillis());
+
+                String jsonMsg = objectMapper.writeValueAsString(msg);
+                sessionRegistry.sendToUser(blindUserId, jsonMsg);
+                log.debug("已向盲人 {} 转发志愿者 {} 位置 (订单 {})", blindUserId, volunteerId, order.getId());
+
+                // 邻近检测：志愿者出发途中，检查是否已接近盲人
+                if (order.getStatus() == OrderStatus.DRIVER_EN_ROUTE) {
+                    checkProximity(order, blindUserId, volunteerId, latitude, longitude);
+                }
+            }
+        } catch (Exception e) {
+            // 位置转发失败不影响主流程
+            log.warn("转发志愿者 {} 位置给盲人失败: {}", volunteerId, e.getMessage());
+        }
+    }
+
+    /**
+     * 邻近检测：如果盲人有上报位置，检查志愿者是否已接近
+     */
+    private void checkProximity(RunOrder order, Long blindUserId, Long volunteerId,
+                                 double volunteerLat, double volunteerLng) {
+        try {
+            Map<String, Double> blindLoc = blindLocationService.getLocation(blindUserId);
+            if (blindLoc == null) {
+                return;
+            }
+            proximityService.checkAndNotify(
+                    order.getId(), blindUserId, volunteerId,
+                    volunteerLat, volunteerLng,
+                    blindLoc.get("lat"), blindLoc.get("lng")
+            );
+        } catch (Exception e) {
+            log.debug("邻近检测失败 (订单 {}): {}", order.getId(), e.getMessage());
         }
     }
 

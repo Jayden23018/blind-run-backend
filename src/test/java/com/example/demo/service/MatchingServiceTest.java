@@ -5,7 +5,7 @@ import com.example.demo.entity.RunOrder;
 import com.example.demo.entity.User;
 import com.example.demo.event.OrderCreatedEvent;
 import com.example.demo.repository.RunOrderRepository;
-import com.example.demo.websocket.VolunteerSessionRegistry;
+import com.example.demo.websocket.UnifiedSessionRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,7 +30,7 @@ class MatchingServiceTest {
     private VolunteerLocationService volunteerLocationService;
 
     @Mock
-    private VolunteerSessionRegistry sessionRegistry;
+    private UnifiedSessionRegistry sessionRegistry;
 
     @Mock
     private RunOrderRepository runOrderRepository;

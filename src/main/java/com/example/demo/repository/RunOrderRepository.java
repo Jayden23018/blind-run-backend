@@ -56,4 +56,17 @@ public interface RunOrderRepository extends JpaRepository<RunOrder, Long> {
     /** 查询多种状态的所有订单（含盲人用户信息） */
     @Query("SELECT o FROM RunOrder o JOIN FETCH o.blindUser WHERE o.status IN :statuses")
     List<RunOrder> findByStatusIn(@Param("statuses") List<OrderStatus> statuses);
+
+    /** 查询志愿者指定状态的订单（含盲人用户信息，用于实时位置转发） */
+    @Query("SELECT o FROM RunOrder o JOIN FETCH o.blindUser WHERE o.volunteer.id = :volunteerId AND o.status IN :statuses")
+    List<RunOrder> findByVolunteerIdAndStatusInFetchBlind(@Param("volunteerId") Long volunteerId, @Param("statuses") List<OrderStatus> statuses);
+
+    /** 查询重新匹配超时需要提醒的订单（定时轮询用） */
+    List<RunOrder> findByStatusAndRematchNotifyAtBefore(OrderStatus status, LocalDateTime now);
+
+    /** 查询匹配超时需要提醒的订单（定时轮询用） */
+    List<RunOrder> findByStatusAndMatchNotifyAtBefore(OrderStatus status, LocalDateTime now);
+
+    /** 查询超过结束时间1小时且未通知的进行中订单（定时轮询用） */
+    List<RunOrder> findByStatusAndPlannedEndTimeBeforeAndOverdueNotifiedFalse(OrderStatus status, LocalDateTime threshold);
 }

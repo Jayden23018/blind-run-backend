@@ -67,7 +67,8 @@ public class UserService {
         // 检查是否有进行中的订单
         boolean hasActiveOrder = runOrderRepository.existsByBlindUserIdAndStatusIn(
                 targetUserId,
-                List.of(OrderStatus.PENDING_MATCH, OrderStatus.PENDING_ACCEPT, OrderStatus.IN_PROGRESS)
+                List.of(OrderStatus.PENDING_MATCH, OrderStatus.PENDING_ACCEPT,
+                        OrderStatus.IN_PROGRESS, OrderStatus.REMATCHING)
         );
         if (hasActiveOrder) {
             throw new OrderStatusException("您有进行中的订单，无法注销");

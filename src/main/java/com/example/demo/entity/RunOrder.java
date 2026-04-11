@@ -97,6 +97,26 @@ public class RunOrder {
     @Version
     private Long version;
 
+    /** 累计重新匹配次数 */
+    @Column(name = "rematch_count")
+    private Integer rematchCount = 0;
+
+    /** 最近一次进入重新匹配的时间 */
+    @Column(name = "last_rematch_at")
+    private LocalDateTime lastRematchAt;
+
+    /** 重新匹配下次提醒时间（定时轮询用） */
+    @Column(name = "rematch_notify_at")
+    private LocalDateTime rematchNotifyAt;
+
+    /** 匹配超时下次提醒时间（创建订单时写入，定时轮询用） */
+    @Column(name = "match_notify_at")
+    private LocalDateTime matchNotifyAt;
+
+    /** 是否已发送超时挂起通知（超过结束时间1小时后提醒志愿者） */
+    @Column(name = "overdue_notified")
+    private Boolean overdueNotified = false;
+
     /**
      * JPA 生命周期回调 —— 在插入数据库之前自动执行
      * 设置创建时间和初始状态

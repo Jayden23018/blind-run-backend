@@ -9,6 +9,10 @@ spring:
       ddl-auto: create-drop
     show-sql: false
     database-platform: org.hibernate.dialect.H2Dialect
+  # 测试环境不执行 data.sql
+  sql:
+    init:
+      mode: never
   # Redis 配置：由 Testcontainers @DynamicPropertySource 动态注入 host/port
   data:
     redis:

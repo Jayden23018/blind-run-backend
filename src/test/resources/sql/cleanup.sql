@@ -2,9 +2,11 @@
 SET REFERENTIAL_INTEGRITY FALSE;
 DELETE FROM order_review;
 DELETE FROM run_order;
+DELETE FROM order_status_logs;
 DELETE FROM volunteer_available_time;
 DELETE FROM volunteer_location;
 DELETE FROM volunteer_profile;
+DELETE FROM emergency_contacts;
 DELETE FROM blind_profile;
 DELETE FROM users;
 SET REFERENTIAL_INTEGRITY TRUE;

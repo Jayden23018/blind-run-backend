@@ -63,6 +63,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // 认证相关接口（发送验证码、验证登录）允许匿名访问
                         .requestMatchers("/api/auth/**").permitAll()
+                        // 客服登录接口允许匿名访问
+                        .requestMatchers("/api/cs/auth/**").permitAll()
                         // Swagger / OpenAPI 文档允许匿名访问
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                         // WebSocket 握手端点允许匿名访问（认证在 HandshakeInterceptor 中处理）

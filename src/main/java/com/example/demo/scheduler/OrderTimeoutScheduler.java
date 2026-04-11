@@ -3,6 +3,7 @@ package com.example.demo.scheduler;
 import com.example.demo.entity.OrderStatus;
 import com.example.demo.entity.RunOrder;
 import com.example.demo.repository.RunOrderRepository;
+import com.example.demo.service.OrderService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -19,9 +20,15 @@ import java.util.List;
 public class OrderTimeoutScheduler {
 
     private final RunOrderRepository runOrderRepository;
+    private final com.example.demo.service.OrderStatusLogService statusLogService;
+    private final OrderService orderService;
 
-    public OrderTimeoutScheduler(RunOrderRepository runOrderRepository) {
+    public OrderTimeoutScheduler(RunOrderRepository runOrderRepository,
+                                  com.example.demo.service.OrderStatusLogService statusLogService,
+                                  OrderService orderService) {
         this.runOrderRepository = runOrderRepository;
+        this.statusLogService = statusLogService;
+        this.orderService = orderService;
     }
 
     @Scheduled(fixedRate = 60000)
@@ -29,8 +36,10 @@ public class OrderTimeoutScheduler {
     public void autoCompleteTimedOutOrders() {
         List<RunOrder> timedOut = runOrderRepository.findTimedOutOrders(LocalDateTime.now());
         for (RunOrder order : timedOut) {
+            String oldStatus = order.getStatus().name();
             order.setStatus(OrderStatus.COMPLETED);
             order.setFinishedAt(LocalDateTime.now());
+            statusLogService.logStatusChange(order.getId(), oldStatus, "COMPLETED", null, "超时自动完成");
             log.info("订单 {} 超过计划结束时间，系统自动完成", order.getId());
         }
         if (!timedOut.isEmpty()) {

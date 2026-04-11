@@ -1,5 +1,6 @@
 package com.example.demo.integration;
 
+import com.example.demo.repository.EmergencyContactRepository;
 import com.example.demo.repository.VolunteerProfileRepository;
 import com.example.demo.service.VerificationCodeService;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,13 +57,16 @@ public abstract class BaseIntegrationTest {
     @Autowired
     protected VolunteerProfileRepository volunteerProfileRepository;
 
+    @Autowired
+    protected EmergencyContactRepository emergencyContactRepository;
+
     protected TestHelper testHelper;
 
     @BeforeEach
     void setupBase() {
         // 清理 Redis 志愿者位置缓存，与 @Sql DB 清理同步
         cleanupVolunteerLocations();
-        testHelper = new TestHelper(restTemplate, verificationCodeService, volunteerProfileRepository);
+        testHelper = new TestHelper(restTemplate, verificationCodeService, volunteerProfileRepository, emergencyContactRepository);
     }
 
     private void cleanupVolunteerLocations() {

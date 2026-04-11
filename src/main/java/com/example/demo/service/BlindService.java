@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 盲人资料业务逻辑服务
+ * 注意：紧急联系人已迁移到 EmergencyContactService
  */
 @Service
 public class BlindService {
@@ -42,9 +43,6 @@ public class BlindService {
 
         return new BlindProfileResponse(
                 profile.getName(),
-                profile.getEmergencyContactName(),
-                profile.getEmergencyContactPhone(),
-                profile.getEmergencyContactRelation(),
                 profile.getRunningPace(),
                 profile.getSpecialNeeds()
         );
@@ -70,9 +68,6 @@ public class BlindService {
                 });
 
         profile.setName(request.getName());
-        profile.setEmergencyContactName(request.getEmergencyContactName());
-        profile.setEmergencyContactPhone(request.getEmergencyContactPhone());
-        profile.setEmergencyContactRelation(request.getEmergencyContactRelation());
         profile.setRunningPace(request.getRunningPace());
         profile.setSpecialNeeds(request.getSpecialNeeds());
 
@@ -80,9 +75,6 @@ public class BlindService {
 
         return new BlindProfileResponse(
                 profile.getName(),
-                profile.getEmergencyContactName(),
-                profile.getEmergencyContactPhone(),
-                profile.getEmergencyContactRelation(),
                 profile.getRunningPace(),
                 profile.getSpecialNeeds()
         );

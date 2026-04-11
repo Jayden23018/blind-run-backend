@@ -89,6 +89,14 @@ public class OrderController {
         return ResponseEntity.ok(Map.of("success", true));
     }
 
+    /** 盲人选择继续等待匹配 */
+    @PutMapping("/{id}/keep-waiting")
+    public ResponseEntity<?> keepWaiting(@PathVariable Long id) {
+        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        orderService.keepWaiting(id, userId);
+        return ResponseEntity.ok(Map.of("success", true));
+    }
+
     @GetMapping("/available")
     public ResponseEntity<?> getAvailableOrders() {
         Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();

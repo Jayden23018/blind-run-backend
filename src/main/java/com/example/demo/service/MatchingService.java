@@ -6,7 +6,7 @@ import com.example.demo.event.OrderCreatedEvent;
 import com.example.demo.repository.RunOrderRepository;
 import com.example.demo.util.GeoUtils;
 import com.example.demo.util.PhoneMaskUtils;
-import com.example.demo.websocket.VolunteerSessionRegistry;
+import com.example.demo.websocket.UnifiedSessionRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -19,27 +19,13 @@ import java.util.stream.Collectors;
 
 /**
  * 匹配服务 —— 监听订单创建事件，异步执行距离匹配并推送通知
- *
- * 【整体流程】
- * 1. 盲人创建订单 → 发布 OrderCreatedEvent
- * 2. 本服务监听到事件 → 获取在线志愿者列表
- * 3. 计算每个志愿者到起跑点的距离
- * 4. 过滤距离超出阈值的志愿者
- * 5. 按距离排序，取前 N 名
- * 6. 通过 WebSocket 向候选志愿者推送订单信息
- * 7. 更新订单状态为 PENDING_ACCEPT
- *
- * 【为什么用 @Async？】
- * 匹配过程涉及网络查询（Redis）和计算，可能需要几百毫秒。
- * 用 @Async 让匹配在独立线程中执行，不阻塞用户下单的响应。
- * 用户下单后立即收到 "订单已提交" 的响应，匹配在后台默默进行。
  */
 @Slf4j
 @Component
 public class MatchingService {
 
     private final VolunteerLocationService volunteerLocationService;
-    private final VolunteerSessionRegistry sessionRegistry;
+    private final UnifiedSessionRegistry sessionRegistry;
     private final RunOrderRepository runOrderRepository;
     private final ObjectMapper objectMapper;
 
@@ -52,7 +38,7 @@ public class MatchingService {
     private int maxCandidates;
 
     public MatchingService(VolunteerLocationService volunteerLocationService,
-                           VolunteerSessionRegistry sessionRegistry,
+                           UnifiedSessionRegistry sessionRegistry,
                            RunOrderRepository runOrderRepository,
                            ObjectMapper objectMapper) {
         this.volunteerLocationService = volunteerLocationService;
@@ -121,7 +107,7 @@ public class MatchingService {
         }
 
         // 5. 更新订单状态为 PENDING_ACCEPT
-        if (order.getStatus() == OrderStatus.PENDING_MATCH) {
+        if (order.getStatus() == OrderStatus.PENDING_MATCH || order.getStatus() == OrderStatus.REMATCHING) {
             order.setStatus(OrderStatus.PENDING_ACCEPT);
             runOrderRepository.save(order);
             log.info("订单 {} 状态更新为 PENDING_ACCEPT，已推送给 {} 名志愿者",

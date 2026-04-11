@@ -30,9 +30,9 @@ import org.springframework.web.socket.WebSocketSession;
 @Component
 public class VolunteerWebSocketHandler extends TextWebSocketHandler {
 
-    private final VolunteerSessionRegistry sessionRegistry;
+    private final UnifiedSessionRegistry sessionRegistry;
 
-    public VolunteerWebSocketHandler(VolunteerSessionRegistry sessionRegistry) {
+    public VolunteerWebSocketHandler(UnifiedSessionRegistry sessionRegistry) {
         this.sessionRegistry = sessionRegistry;
     }
 

@@ -33,44 +33,57 @@
 ### 测试
 
 ```bash
-./gradlew test          # 106 项常规测试
+./gradlew test          # 107 项常规测试
 ./gradlew slowTest      # 3 项慢速测试（超时、并发）
+# 共 110 项测试
 ```
 
 ## 项目结构
 
 ```
 src/main/java/com/example/demo/
-├── config/          # 安全配置、WebSocket 配置
-├── controller/      # 7 个 REST 控制器
-├── service/         # 12 个业务服务
-├── repository/      # 7 个 JPA Repository
-├── entity/          # 11 个数据实体
-├── dto/             # 16 个请求/响应 DTO
+├── config/          # 安全配置（SecurityConfig）
+├── controller/      # 14 个 REST 控制器
+├── service/         # 20+ 个业务服务（+ impl/ 子包）
+├── repository/      # 15 个 JPA Repository
+├── entity/          # 数据实体 + 枚举
+├── dto/             # 请求/响应 DTO
 ├── event/           # 异步事件（订单创建触发匹配）
 ├── exception/       # 自定义异常 + 全局异常处理
 ├── filter/          # JWT 过滤器、WebSocket 握手拦截器
-├── scheduler/       # 定时任务（超时自动完成）
-├── websocket/       # WebSocket 处理器、会话注册表
-└── util/            # 工具类（地理距离计算、手机号脱敏）
+├── scheduler/       # 定时任务（TimeoutScheduler、OrderTimeoutScheduler）
+├── websocket/       # WebSocket 处理器、UnifiedSessionRegistry
+└── util/            # 工具类（地理距离计算、JWT、手机号脱敏）
 ```
 
 ## 核心流程
 
 ```
-盲人下单 → 异步匹配附近志愿者 → WebSocket 推送通知 → 志愿者接单 → 完成服务 → 评价
+盲人下单 → 异步匹配附近志愿者 → WebSocket 推送通知 → 志愿者接单 → 出发 → 到达 → 完成服务 → 评价
 ```
 
-### 订单状态
+### 订单状态机
 
-`PENDING_MATCH` → `PENDING_ACCEPT` → `IN_PROGRESS` → `COMPLETED`
+`PENDING_MATCH` → `PENDING_ACCEPT` → `IN_PROGRESS` → `DRIVER_EN_ROUTE` → `DRIVER_ARRIVED` → `COMPLETED`
 
-（各阶段均可取消，超时自动完成）
+- 各阶段可取消（`CANCELLED`），志愿者取消后进入重新匹配（`REMATCHING`）
+- 匹配超时、重新匹配超时、超时挂起订单均通过 DB 轮询检测（`TimeoutScheduler`）
+- 紧急事件可在服务中触发，30s 内志愿者未响应则自动升级通知紧急联系人
+
+### 定时轮询（TimeoutScheduler）
+
+| 任务 | 频率 | 说明 |
+|------|------|------|
+| 紧急事件志愿者超时 | 10s | 30s 未响应 → 升级通知紧急联系人 |
+| 重新匹配超时提醒 | 10s | 循环提醒盲人用户 |
+| 匹配超时提醒 | 10s | 循环提醒盲人"暂无志愿者" |
+| 超时挂起订单 | 60s | 超过结束时间 1 小时的进行中订单 |
 
 ## 接口测试
 
 - **Swagger UI**: http://localhost:8081/swagger-ui/index.html
 - **API 文档 JSON**: http://localhost:8081/v3/api-docs （可导入 Postman）
+- **Postman 测试指南**: 参见 [POSTMAN_TEST_GUIDE.md](POSTMAN_TEST_GUIDE.md)
 
 ## 详细文档
 
@@ -84,10 +97,15 @@ src/main/java/com/example/demo/
 
 | 模块 | 接口 |
 |------|------|
-| 认证 | `POST /api/auth/send-code`、`POST /api/auth/verify-code`、`GET /api/auth/me` |
+| 用户认证 | `POST /api/auth/send-code`、`POST /api/auth/verify-code`、`GET /api/auth/me` |
+| 客服认证 | `POST /api/cs/auth/login` |
 | 角色 | `POST /api/user/role` |
-| 盲人 | `GET/PUT /api/blind/profile` |
-| 志愿者 | `GET/PUT /api/volunteer/profile`、`POST .../verification`、`POST .../location` |
-| 订单 | `POST /api/orders`、`POST .../accept`、`POST .../finish`、`POST .../cancel` |
-| 评价 | `POST /api/orders/{id}/review` |
+| 盲人 | `GET/PUT /api/blind/profile`、`POST /api/blind/location` |
+| 紧急联系人 | `GET/POST/PUT/DELETE /api/users/{userId}/emergency-contacts`、`PUT .../set-primary` |
+| 志愿者 | `GET/PUT /api/volunteer/profile`、`POST .../verification`、`GET .../verification/status`、`POST .../location` |
+| 订单 | `POST /api/orders`、`POST .../accept\|reject\|finish\|cancel\|en-route\|arrived`、`GET .../available\|mine\|{id}\|status-logs`、`PUT .../{id}/keep-waiting` |
+| 紧急事件 | `POST /api/emergency/trigger`、`PUT /api/emergency/{id}/volunteer-response` |
+| 客服端 | `POST /api/cs/auth/login`、`GET /api/cs/emergency-events`、`PUT .../{id}/accept\|notify-contact\|resolve\|false-alarm` |
+| 通话 | `POST /api/orders/{id}/call/initiate`、`GET .../call/records` |
+| 评价 | `POST /api/orders/{id}/review`、`GET .../reviews` |
 | 用户 | `GET /api/users/{id}`、`DELETE /api/users/{id}` |

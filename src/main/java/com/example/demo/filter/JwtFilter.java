@@ -67,7 +67,13 @@ public class JwtFilter extends OncePerRequestFilter {
                 UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken(userId, null, new ArrayList<>());
 
-                // 6. 将认证信息存入 SecurityContext
+                // 6. 如果是客服 token，将 csRole 存入 details
+                String csRole = jwtUtil.getCsRoleFromToken(token);
+                if (csRole != null) {
+                    authentication.setDetails(csRole);
+                }
+
+                // 7. 将认证信息存入 SecurityContext
                 //    后续的 Controller 可以通过 SecurityContextHolder 获取当前用户信息
                 SecurityContextHolder.getContext().setAuthentication(authentication);
             }

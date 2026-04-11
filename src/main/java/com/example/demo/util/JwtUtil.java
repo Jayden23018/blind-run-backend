@@ -63,12 +63,38 @@ public class JwtUtil {
      *   signature = 用密钥对前两部分进行签名，防止篡改
      */
     public String generateToken(Long userId) {
-        return Jwts.builder()
-                .subject(String.valueOf(userId))                   // token 主体：存入用户ID
-                .issuedAt(new Date())                              // 签发时间：当前时间
-                .expiration(new Date(System.currentTimeMillis() + expiration))  // 过期时间
-                .signWith(getSigningKey())                         // 用密钥签名
-                .compact();                                        // 拼装成字符串
+        return generateToken(userId, null);
+    }
+
+    /**
+     * 生成 JWT Token（带额外 claim，用于客服账号）
+     *
+     * @param userId 用户ID
+     * @param csRole 客服角色（CS/ADMIN），普通用户传 null
+     */
+    public String generateToken(Long userId, String csRole) {
+        var builder = Jwts.builder()
+                .subject(String.valueOf(userId))
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + expiration));
+
+        if (csRole != null) {
+            builder.claim("csRole", csRole);
+        }
+
+        return builder.signWith(getSigningKey()).compact();
+    }
+
+    /**
+     * 从 token 中提取客服角色（仅客服 token 有此字段）
+     */
+    public String getCsRoleFromToken(String token) {
+        return Jwts.parser()
+                .verifyWith(getSigningKey())
+                .build()
+                .parseSignedClaims(token)
+                .getPayload()
+                .get("csRole", String.class);
     }
 
     /**

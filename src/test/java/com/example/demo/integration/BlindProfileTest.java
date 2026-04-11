@@ -26,9 +26,6 @@ class BlindProfileTest extends BaseIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         JsonNode json = testHelper.extractJson(response.getBody());
         assertThat(json.get("name").isNull()).isTrue();
-        assertThat(json.get("emergencyContactName").isNull()).isTrue();
-        assertThat(json.get("emergencyContactPhone").isNull()).isTrue();
-        assertThat(json.get("emergencyContactRelation").isNull()).isTrue();
         assertThat(json.get("runningPace").isNull()).isTrue();
         assertThat(json.get("specialNeeds").isNull()).isTrue();
 
@@ -46,9 +43,6 @@ class BlindProfileTest extends BaseIntegrationTest {
         String updateBody = """
                 {
                   "name": "张三",
-                  "emergencyContactName": "李四",
-                  "emergencyContactPhone": "13900001111",
-                  "emergencyContactRelation": "朋友",
                   "runningPace": "6:00",
                   "specialNeeds": "需要语音引导"
                 }
@@ -64,16 +58,13 @@ class BlindProfileTest extends BaseIntegrationTest {
         JsonNode data = json.get("data");
         assertThat(data).isNotNull();
         assertThat(data.get("name").asText()).isEqualTo("张三");
-        assertThat(data.get("emergencyContactName").asText()).isEqualTo("李四");
-        assertThat(data.get("emergencyContactPhone").asText()).isEqualTo("13900001111");
-        assertThat(data.get("emergencyContactRelation").asText()).isEqualTo("朋友");
         assertThat(data.get("runningPace").asText()).isEqualTo("6:00");
         assertThat(data.get("specialNeeds").asText()).isEqualTo("需要语音引导");
 
         System.out.println("✅ TC-BLIND-02 passed — 更新全部字段成功");
     }
 
-    /** TC-BLIND-03：更新后重新获取，字段匹配（紧急电话对盲人可见明文） */
+    /** TC-BLIND-03：更新后重新获取，字段匹配 */
     @Test
     @DisplayName("TC-BLIND-03: 更新后重新获取资料")
     void tc03_getProfileAfterUpdate() {
@@ -82,9 +73,6 @@ class BlindProfileTest extends BaseIntegrationTest {
         String updateBody = """
                 {
                   "name": "王五",
-                  "emergencyContactName": "赵六",
-                  "emergencyContactPhone": "13900002222",
-                  "emergencyContactRelation": "配偶",
                   "runningPace": "5:30",
                   "specialNeeds": "视障一级，需陪跑绳"
                 }
@@ -99,10 +87,6 @@ class BlindProfileTest extends BaseIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         JsonNode json = testHelper.extractJson(response.getBody());
         assertThat(json.get("name").asText()).isEqualTo("王五");
-        assertThat(json.get("emergencyContactName").asText()).isEqualTo("赵六");
-        // 紧急联系电话对盲人用户显示完整号码（不脱敏）
-        assertThat(json.get("emergencyContactPhone").asText()).isEqualTo("13900002222");
-        assertThat(json.get("emergencyContactRelation").asText()).isEqualTo("配偶");
         assertThat(json.get("runningPace").asText()).isEqualTo("5:30");
         assertThat(json.get("specialNeeds").asText()).isEqualTo("视障一级，需陪跑绳");
 

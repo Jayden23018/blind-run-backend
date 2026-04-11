@@ -1,7 +1,9 @@
 package com.example.demo.integration;
 
+import com.example.demo.entity.EmergencyContact;
 import com.example.demo.entity.OrderStatus;
 import com.example.demo.entity.VolunteerProfile;
+import com.example.demo.repository.EmergencyContactRepository;
 import com.example.demo.repository.VolunteerProfileRepository;
 import com.example.demo.service.VerificationCodeService;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -28,12 +30,15 @@ public class TestHelper {
     private final TestRestTemplate rest;
     private final VerificationCodeService verificationCodeService;
     private final VolunteerProfileRepository volunteerProfileRepository;
+    private final EmergencyContactRepository emergencyContactRepository;
 
     public TestHelper(TestRestTemplate restTemplate, VerificationCodeService verificationCodeService,
-                      VolunteerProfileRepository volunteerProfileRepository) {
+                      VolunteerProfileRepository volunteerProfileRepository,
+                      EmergencyContactRepository emergencyContactRepository) {
         this.rest = restTemplate;
         this.verificationCodeService = verificationCodeService;
         this.volunteerProfileRepository = volunteerProfileRepository;
+        this.emergencyContactRepository = emergencyContactRepository;
     }
 
     // ==================== 认证相关 ====================
@@ -68,7 +73,7 @@ public class TestHelper {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
-    /** 注册 + 设角色，一步到位（志愿者自动认证） */
+    /** 注册 + 设角色，一步到位（志愿者自动认证，盲人自动添加紧急联系人） */
     public String registerAndLoginWithRole(String phone, String role) {
         String token = registerAndLogin(phone);
         setRole(token, role);
@@ -82,6 +87,10 @@ public class TestHelper {
             });
         }
 
+        if ("BLIND".equals(role)) {
+            addEmergencyContact(token);
+        }
+
         return token;
     }
 
@@ -90,6 +99,18 @@ public class TestHelper {
         String token = registerAndLogin(phone);
         setRole(token, "VOLUNTEER");
         return token;
+    }
+
+    /** 为盲人用户添加紧急联系人（下单前置条件） */
+    public void addEmergencyContact(String blindToken) {
+        Long userId = extractUserId(blindToken);
+        EmergencyContact contact = new EmergencyContact();
+        contact.setUserId(userId);
+        contact.setName("紧急联系人");
+        contact.setPhone("13800000001");
+        contact.setRelationship("家人");
+        contact.setIsPrimary(true);
+        emergencyContactRepository.save(contact);
     }
 
     /** 从 JWT token 中解析 userId（通过 /api/auth/me） */

@@ -37,11 +37,25 @@ class OrderCancelTest {
     @Mock
     private VolunteerProfileRepository volunteerProfileRepository;
 
+    @Mock
+    private OrderStatusLogService statusLogService;
+
+    @Mock
+    private EmergencyContactService emergencyContactService;
+
+    @Mock
+    private NotificationService notificationService;
+
+    @Mock
+    private ProximityService proximityService;
+
     private OrderService orderService;
 
     @BeforeEach
     void setUp() {
-        orderService = new OrderService(runOrderRepository, userRepository, eventPublisher, volunteerProfileRepository);
+        orderService = new OrderService(runOrderRepository, userRepository, eventPublisher,
+                volunteerProfileRepository, statusLogService, emergencyContactService,
+                notificationService, proximityService);
     }
 
     /** 盲人在 IN_PROGRESS 状态取消 → 403 */
@@ -83,7 +97,7 @@ class OrderCancelTest {
                 () -> orderService.cancelOrder(1001L, 99L));
     }
 
-    /** 盲人在 PENDING_MATCH 取消 → 成功 */
+    /** 盲人在 PENDING_MATCH 取消 → CANCELLED */
     @Test
     void testBlindCancelPendingMatch() {
         User blindUser = new User();
@@ -103,7 +117,7 @@ class OrderCancelTest {
         assertEquals(CancelledBy.BLIND, order.getCancelledBy());
     }
 
-    /** 盲人在 PENDING_ACCEPT 取消 → 成功 */
+    /** 盲人在 PENDING_ACCEPT 取消 → CANCELLED */
     @Test
     void testBlindCancelPendingAccept() {
         User blindUser = new User();
@@ -123,7 +137,7 @@ class OrderCancelTest {
         assertEquals(CancelledBy.BLIND, order.getCancelledBy());
     }
 
-    /** 志愿者在 IN_PROGRESS 取消 → 成功（爽约） */
+    /** 志愿者在 IN_PROGRESS 取消 → CANCELLED（爽约） */
     @Test
     void testVolunteerCancelInProgress() {
         User blindUser = new User();
@@ -147,7 +161,7 @@ class OrderCancelTest {
         assertEquals(CancelledBy.VOLUNTEER, order.getCancelledBy());
     }
 
-    /** 志愿者在 PENDING_ACCEPT 取消 → 成功 */
+    /** 志愿者在 PENDING_ACCEPT 取消 → REMATCHING */
     @Test
     void testVolunteerCancelPendingAccept() {
         User blindUser = new User();
@@ -167,7 +181,88 @@ class OrderCancelTest {
 
         orderService.cancelOrder(1001L, 2L);
 
-        assertEquals(OrderStatus.CANCELLED, order.getStatus());
+        assertEquals(OrderStatus.REMATCHING, order.getStatus());
         assertEquals(CancelledBy.VOLUNTEER, order.getCancelledBy());
+        assertNull(order.getVolunteer());
+        assertEquals(1, order.getRematchCount());
+        assertNotNull(order.getLastRematchAt());
+        assertNotNull(order.getRematchNotifyAt());
+
+        // 验证发布了匹配事件
+        verify(eventPublisher).publishEvent(any());
+        // 验证通知了盲人
+        verify(notificationService).sendOrderStatusChange(eq(1001L), eq("PENDING_ACCEPT"), eq("REMATCHING"),
+                eq(1L), eq(2L), contains("重新匹配"));
+    }
+
+    /** 志愿者在 DRIVER_EN_ROUTE 取消 → REMATCHING */
+    @Test
+    void testVolunteerCancelDriverEnRoute() {
+        User blindUser = new User();
+        blindUser.setId(1L);
+
+        User volunteer = new User();
+        volunteer.setId(2L);
+
+        RunOrder order = new RunOrder();
+        order.setId(1001L);
+        order.setBlindUser(blindUser);
+        order.setVolunteer(volunteer);
+        order.setStatus(OrderStatus.DRIVER_EN_ROUTE);
+
+        when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
+        when(runOrderRepository.save(any(RunOrder.class))).thenReturn(order);
+
+        orderService.cancelOrder(1001L, 2L);
+
+        assertEquals(OrderStatus.REMATCHING, order.getStatus());
+        assertNull(order.getVolunteer());
+        assertEquals(1, order.getRematchCount());
+    }
+
+    /** 志愿者在 DRIVER_ARRIVED 取消 → REMATCHING */
+    @Test
+    void testVolunteerCancelDriverArrived() {
+        User blindUser = new User();
+        blindUser.setId(1L);
+
+        User volunteer = new User();
+        volunteer.setId(2L);
+
+        RunOrder order = new RunOrder();
+        order.setId(1001L);
+        order.setBlindUser(blindUser);
+        order.setVolunteer(volunteer);
+        order.setStatus(OrderStatus.DRIVER_ARRIVED);
+
+        when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
+        when(runOrderRepository.save(any(RunOrder.class))).thenReturn(order);
+
+        orderService.cancelOrder(1001L, 2L);
+
+        assertEquals(OrderStatus.REMATCHING, order.getStatus());
+        assertNull(order.getVolunteer());
+    }
+
+    /** 盲人在 REMATCHING 状态取消 → CANCELLED */
+    @Test
+    void testBlindCancelRematching() {
+        User blindUser = new User();
+        blindUser.setId(1L);
+
+        RunOrder order = new RunOrder();
+        order.setId(1001L);
+        order.setBlindUser(blindUser);
+        order.setStatus(OrderStatus.REMATCHING);
+
+        when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
+        when(runOrderRepository.save(any(RunOrder.class))).thenReturn(order);
+
+        orderService.cancelOrder(1001L, 1L);
+
+        assertEquals(OrderStatus.CANCELLED, order.getStatus());
+        assertEquals(CancelledBy.BLIND, order.getCancelledBy());
+        // 验证清除了 rematchNotifyAt
+        assertNull(order.getRematchNotifyAt());
     }
 }
