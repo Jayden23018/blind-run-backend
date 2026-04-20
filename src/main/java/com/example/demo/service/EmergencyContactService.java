@@ -27,11 +27,14 @@ public class EmergencyContactService {
 
     private final EmergencyContactRepository contactRepository;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     public EmergencyContactService(EmergencyContactRepository contactRepository,
-                                   UserRepository userRepository) {
+                                   UserRepository userRepository,
+                                   NotificationService notificationService) {
         this.contactRepository = contactRepository;
         this.userRepository = userRepository;
+        this.notificationService = notificationService;
     }
 
     /** 获取用户的所有紧急联系人 */
@@ -71,6 +74,12 @@ public class EmergencyContactService {
 
         contactRepository.save(contact);
         log.info("用户 {} 新增紧急联系人: {}", userId, contact.getName());
+
+        // 通知被添加的联系人
+        User user = userRepository.findById(userId).orElse(null);
+        if (user != null) {
+            notificationService.sendContactAddedSms(contact.getPhone(), user.getName());
+        }
 
         return toResponse(contact);
     }

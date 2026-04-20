@@ -35,6 +35,7 @@ public class EmergencyService {
     private final CSUserRepository csUserRepository;
     private final NotificationService notificationService;
     private final StringRedisTemplate redisTemplate;
+    private final UserRepository userRepository;
 
     @Value("${app.emergency.cooldown-seconds:60}")
     private int cooldownSeconds;
@@ -48,7 +49,8 @@ public class EmergencyService {
                             EmergencyContactRepository contactRepository,
                             CSUserRepository csUserRepository,
                             NotificationService notificationService,
-                            StringRedisTemplate redisTemplate) {
+                            StringRedisTemplate redisTemplate,
+                            UserRepository userRepository) {
         this.eventRepository = eventRepository;
         this.notificationRepository = notificationRepository;
         this.runOrderRepository = runOrderRepository;
@@ -56,6 +58,7 @@ public class EmergencyService {
         this.csUserRepository = csUserRepository;
         this.notificationService = notificationService;
         this.redisTemplate = redisTemplate;
+        this.userRepository = userRepository;
     }
 
     /**
@@ -216,7 +219,14 @@ public class EmergencyService {
         event.setCsUserId(csUserId);
         eventRepository.save(event);
 
-        notificationService.sendSms(primaryContact.getPhone(), notification.getContent());
+        // 发送紧急求助模板短信
+        User triggerUser = userRepository.findById(event.getUserId())
+                .orElseThrow(() -> new IllegalStateException("触发用户不存在"));
+        notificationService.sendEmergencyAlertSms(
+                primaryContact.getPhone(),
+                triggerUser.getName(),
+                event.getTriggeredAt().toString(),
+                formatLocation(event));
 
         log.info("已通知紧急联系人, eventId={}, contactId={}", eventId, primaryContact.getId());
     }
@@ -234,6 +244,15 @@ public class EmergencyService {
         event.setCsNotes(notes);
         event.setResolvedAt(LocalDateTime.now());
         eventRepository.save(event);
+
+        // 通知紧急联系人：紧急求助已解除
+        contactRepository.findByUserIdAndIsPrimaryTrue(event.getUserId()).ifPresent(contact -> {
+            User user = userRepository.findById(event.getUserId()).orElse(null);
+            notificationService.sendEmergencyResolvedSms(
+                    contact.getPhone(),
+                    user != null ? user.getName() : "未知用户",
+                    LocalDateTime.now().toString());
+        });
 
         log.info("紧急事件已解决, eventId={}, csUserId={}", eventId, csUserId);
     }
@@ -294,7 +313,13 @@ public class EmergencyService {
         EmergencyContact primaryContact = contactRepository
                 .findByUserIdAndIsPrimaryTrue(event.getUserId()).orElse(null);
         if (primaryContact != null) {
-            notificationService.sendSms(primaryContact.getPhone(), EMERGENCY_CONTACT_SMS);
+            User triggerUser = userRepository.findById(event.getUserId()).orElse(null);
+            String userName = triggerUser != null ? triggerUser.getName() : "未知用户";
+            notificationService.sendEmergencyAlertSms(
+                    primaryContact.getPhone(),
+                    userName,
+                    event.getTriggeredAt().toString(),
+                    formatLocation(event));
 
             EmergencyNotification notification = new EmergencyNotification();
             notification.setEventId(event.getId());
@@ -315,5 +340,12 @@ public class EmergencyService {
         } else {
             log.warn("未找到主要紧急联系人, userId={}", event.getUserId());
         }
+    }
+
+    private String formatLocation(EmergencyEvent event) {
+        if (event.getGpsLat() != null && event.getGpsLng() != null) {
+            return event.getGpsLat().toPlainString() + "," + event.getGpsLng().toPlainString();
+        }
+        return "未知";
     }
 }

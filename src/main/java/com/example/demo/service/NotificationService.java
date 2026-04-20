@@ -3,6 +3,8 @@ package com.example.demo.service;
 import com.example.demo.entity.*;
 import com.example.demo.repository.NotificationLogRepository;
 import com.example.demo.repository.NotificationTemplateRepository;
+import com.example.demo.repository.UserRepository;
+import com.example.demo.util.PhoneMaskUtils;
 import com.example.demo.websocket.UnifiedSessionRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -10,6 +12,7 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -25,15 +28,21 @@ public class NotificationService {
     private final NotificationLogRepository notificationLogRepository;
     private final NotificationTemplateRepository templateRepository;
     private final ObjectMapper objectMapper;
+    private final SmsService smsService;
+    private final UserRepository userRepository;
 
     public NotificationService(UnifiedSessionRegistry sessionRegistry,
                                NotificationLogRepository notificationLogRepository,
                                NotificationTemplateRepository templateRepository,
-                               ObjectMapper objectMapper) {
+                               ObjectMapper objectMapper,
+                               SmsService smsService,
+                               UserRepository userRepository) {
         this.sessionRegistry = sessionRegistry;
         this.notificationLogRepository = notificationLogRepository;
         this.templateRepository = templateRepository;
         this.objectMapper = objectMapper;
+        this.smsService = smsService;
+        this.userRepository = userRepository;
     }
 
     /**
@@ -306,18 +315,50 @@ public class NotificationService {
     }
 
     /**
-     * 发送短信（模拟，当前阶段打印日志）
+     * 发送紧急求助短信给联系人
      */
-    public void sendSms(String phone, String content) {
-        // TODO: 接入阿里云 SMS
-        log.info("【模拟短信】发送至 {}: {}", phone, content);
+    public void sendEmergencyAlertSms(String phone, String userName, String time, String location) {
+        Map<String, String> params = new HashMap<>();
+        params.put("user_name", userName);
+        params.put("time", time);
+        params.put("location", location != null ? location : "未知");
+        smsService.sendTemplateSms(phone, SmsTemplate.EMERGENCY_ALERT, params);
     }
 
     /**
-     * 发送短信给用户（模拟）
+     * 发送紧急联系人被添加通知短信
      */
+    public void sendContactAddedSms(String phone, String userName) {
+        smsService.sendTemplateSms(phone, SmsTemplate.CONTACT_ADDED, Map.of("user_name", userName));
+    }
+
+    /**
+     * 发送紧急求助解除通知短信
+     */
+    public void sendEmergencyResolvedSms(String phone, String userName, String time) {
+        smsService.sendTemplateSms(phone, SmsTemplate.EMERGENCY_RESOLVED,
+                Map.of("user_name", userName, "time", time));
+    }
+
+    /**
+     * 发送短信（兼容旧调用方式）
+     * @deprecated 请使用 sendEmergencyAlertSms 等模板方法
+     */
+    @Deprecated
+    public void sendSms(String phone, String content) {
+        log.warn("调用了已废弃的 sendSms 方法，建议迁移到模板短信: phone={}",
+                PhoneMaskUtils.mask(phone));
+    }
+
+    /**
+     * 发送短信给用户（根据 userId 查询手机号）
+     * @deprecated 仅用于给盲人本人发短信，建议迁移到模板方法
+     */
+    @Deprecated
     public void sendSmsToUser(Long userId, String content) {
-        log.info("【模拟短信】发送至 userId={}: {}", userId, content);
+        userRepository.findById(userId).ifPresent(user ->
+                log.info("【短信日志】发送至用户{}(手机号={}): {}",
+                        userId, PhoneMaskUtils.mask(user.getPhone()), content));
     }
 
     // === 私有方法 ===
