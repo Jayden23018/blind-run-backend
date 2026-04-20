@@ -1,5 +1,6 @@
 package com.example.demo.dto;
 
+import com.example.demo.entity.BlindVerifyStatus;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 
@@ -13,4 +14,5 @@ public class BlindProfileResponse {
     private String name;
     private String runningPace;
     private String specialNeeds;
+    private BlindVerifyStatus verifyStatus;
 }

@@ -1,45 +1,47 @@
 package com.example.demo.websocket;
 
+import com.example.demo.service.VolunteerLocationService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
-import org.springframework.web.socket.handler.TextWebSocketHandler;
+import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 /**
- * 志愿者 WebSocket 处理器 —— 处理志愿者的 WebSocket 连接事件
+ * 志愿者 WebSocket 处理器 —— 处理志愿者的 WebSocket 连接事件和位置上报
  *
- * 【什么是 WebSocket？】
- * HTTP 请求是"一问一答"模式（前端问，后端答）。
- * WebSocket 是"持久连接"模式，建立连接后双方可以随时发消息。
- * 适合实时推送场景（如：有新订单时立即通知志愿者）。
+ * 【连接管理】
+ * - 连接建立/断开：注册/注销到 UnifiedSessionRegistry
+ * - userId 由 JwtHandshakeInterceptor 在握手时存入 session attributes
  *
- * 【为什么继承 TextWebSocketHandler？】
- * Spring 提供的 WebSocket 处理器基类，我们只需要重写需要的回调方法：
- * - afterConnectionEstablished  连接建立时
- * - afterConnectionClosed       连接关闭时
- * - handleTransportError        连接出错时
- *
- * 【工作流程】
- * 1. 志愿者前端建立 WebSocket 连接（携带 JWT token 认证）
- * 2. 连接成功 → 从 session 中取出 userId → 注册到 VolunteerSessionRegistry
- * 3. 有新订单时，MatchingService 通过 VolunteerSessionRegistry 推送消息
- * 4. 志愿者断开连接 → 从注册表中移除
+ * 【位置上报】
+ * - 前端通过 WebSocket 发送 JSON 消息上报实时位置
+ * - 消息格式：{ "type": "LOCATION_UPDATE", "lat": 31.23, "lng": 121.47 }
+ * - 调用 VolunteerLocationService 更新 Redis + MySQL
  */
 @Slf4j
 @Component
 public class VolunteerWebSocketHandler extends TextWebSocketHandler {
 
     private final UnifiedSessionRegistry sessionRegistry;
+    private final VolunteerLocationService volunteerLocationService;
+    private final ObjectMapper objectMapper;
 
-    public VolunteerWebSocketHandler(UnifiedSessionRegistry sessionRegistry) {
+    public VolunteerWebSocketHandler(UnifiedSessionRegistry sessionRegistry,
+                                     VolunteerLocationService volunteerLocationService,
+                                     ObjectMapper objectMapper) {
         this.sessionRegistry = sessionRegistry;
+        this.volunteerLocationService = volunteerLocationService;
+        this.objectMapper = objectMapper;
     }
 
     /**
      * 连接建立成功时的回调
      * 从 session attributes 中取出 userId（由 JwtHandshakeInterceptor 设置）
-     * 注册到 VolunteerSessionRegistry
+     * 注册到 UnifiedSessionRegistry
      */
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
@@ -49,6 +51,43 @@ public class VolunteerWebSocketHandler extends TextWebSocketHandler {
         } else {
             log.warn("WebSocket 连接缺少用户ID信息，关闭连接");
             session.close(CloseStatus.POLICY_VIOLATION);
+        }
+    }
+
+    /**
+     * 处理前端发来的文本消息（主要是位置上报）
+     *
+     * 消息格式：{ "type": "LOCATION_UPDATE", "lat": 31.23, "lng": 121.47 }
+     * 其他 type 的消息会被忽略并打印警告日志
+     */
+    @Override
+    protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
+        Long userId = getUserIdFromSession(session);
+        if (userId == null) {
+            log.warn("收到消息但 session 中无 userId，忽略");
+            return;
+        }
+
+        try {
+            JsonNode json = objectMapper.readTree(message.getPayload());
+            String type = json.has("type") ? json.get("type").asText() : "";
+
+            if ("LOCATION_UPDATE".equals(type)) {
+                Double lat = json.has("lat") ? json.get("lat").asDouble() : null;
+                Double lng = json.has("lng") ? json.get("lng").asDouble() : null;
+
+                if (lat == null || lng == null) {
+                    log.warn("志愿者 {} 位置消息缺少 lat/lng 字段", userId);
+                    return;
+                }
+
+                volunteerLocationService.updateLocation(userId, lat, lng, true);
+                log.debug("志愿者 {} WebSocket 位置上报: lat={}, lng={}", userId, lat, lng);
+            } else {
+                log.warn("志愿者 {} 发送未知消息类型: {}", userId, type);
+            }
+        } catch (Exception e) {
+            log.error("志愿者 {} WebSocket 消息解析失败: {}", userId, e.getMessage());
         }
     }
 
@@ -79,7 +118,7 @@ public class VolunteerWebSocketHandler extends TextWebSocketHandler {
 
     /**
      * 从 WebSocket session 的 attributes 中提取用户ID
-     * 这个值是在 HandshakeInterceptor 中设置的
+     * 这个值是在 JwtHandshakeInterceptor 中设置的
      */
     private Long getUserIdFromSession(WebSocketSession session) {
         Object userId = session.getAttributes().get("userId");

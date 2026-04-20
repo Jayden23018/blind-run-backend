@@ -29,6 +29,19 @@ public class BlindProfile {
     @Column(name = "special_needs")
     private String specialNeeds;
 
+    /** 身份证姓名 */
+    @Column(name = "id_card_name", length = 50)
+    private String idCardName;
+
+    /** 身份证号码 */
+    @Column(name = "id_card_number", length = 18)
+    private String idCardNumber;
+
+    /** 身份认证状态 */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "verify_status", length = 16, nullable = false)
+    private BlindVerifyStatus verifyStatus = BlindVerifyStatus.NOT_VERIFIED;
+
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 

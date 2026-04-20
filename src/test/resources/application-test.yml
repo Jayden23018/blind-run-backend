@@ -20,6 +20,7 @@ spring:
       client-type: jedis
 
 sms:
+  provider: test
   code:
     length: 6
     ttl-minutes: 5
@@ -31,6 +32,7 @@ app:
     max-candidates: 3
   websocket:
     endpoint: /ws/volunteer
+    blind-endpoint: /ws/blind
   volunteer:
     location-ttl-seconds: 30
   upload:

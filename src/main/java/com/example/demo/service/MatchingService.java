@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -55,6 +56,7 @@ public class MatchingService {
      */
     @EventListener
     @Async
+    @Transactional
     public void handleOrderCreated(OrderCreatedEvent event) {
         // 从数据库重新加载订单（JOIN FETCH 盲人用户），避免异步线程中懒加载异常
         RunOrder order = runOrderRepository.findByIdWithBlindUser(event.getOrder().getId()).orElse(null);
@@ -101,17 +103,17 @@ public class MatchingService {
             return;
         }
 
-        // 4. 推送订单信息给候选志愿者
-        for (VolunteerCandidate candidate : selected) {
-            pushOrderToVolunteer(order, candidate.getVolunteerId(), candidate.getDistance());
-        }
-
-        // 5. 更新订单状态为 PENDING_ACCEPT
+        // 4. 先更新订单状态为 PENDING_ACCEPT（数据库操作放在前面，缩短事务持有时间）
         if (order.getStatus() == OrderStatus.PENDING_MATCH || order.getStatus() == OrderStatus.REMATCHING) {
             order.setStatus(OrderStatus.PENDING_ACCEPT);
             runOrderRepository.save(order);
-            log.info("订单 {} 状态更新为 PENDING_ACCEPT，已推送给 {} 名志愿者",
+            log.info("订单 {} 状态更新为 PENDING_ACCEPT，准备推送给 {} 名志愿者",
                     order.getId(), selected.size());
+        }
+
+        // 5. 推送订单信息给候选志愿者（非事务操作，放在事务提交后）
+        for (VolunteerCandidate candidate : selected) {
+            pushOrderToVolunteer(order, candidate.getVolunteerId(), candidate.getDistance());
         }
     }
 

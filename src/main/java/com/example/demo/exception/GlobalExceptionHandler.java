@@ -7,6 +7,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -112,9 +113,40 @@ public class GlobalExceptionHandler {
                 .body(Map.of("success", false, "code", 409, "message", "订单已被其他志愿者接单"));
     }
 
+    /** 注册步骤异常 → 409 */
+    @ExceptionHandler(RegistrationStepException.class)
+    public ResponseEntity<Map<String, Object>> handleRegistrationStep(RegistrationStepException e) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(Map.of("success", false, "code", 409, "message", e.getMessage()));
+    }
+
+    /** 培训业务异常 → 400 */
+    @ExceptionHandler(TrainingException.class)
+    public ResponseEntity<Map<String, Object>> handleTraining(TrainingException e) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(Map.of("success", false, "code", 400, "message", e.getMessage()));
+    }
+
+    /** 速率限制异常 → 429 */
+    @ExceptionHandler(RateLimitException.class)
+    public ResponseEntity<Map<String, Object>> handleRateLimitException(RateLimitException e) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("error", "TOO_MANY_REQUESTS");
+        body.put("message", e.getMessage());
+        body.put("retryAfterSeconds", e.getRetryAfterSeconds());
+        return ResponseEntity
+                .status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", String.valueOf(e.getRetryAfterSeconds()))
+                .body(body);
+    }
+
     /** 兜底：其他未捕获异常 → 500 */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGenericException(Exception e) {
+        org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class)
+                .error("未捕获异常: {}", e.getMessage(), e);
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(Map.of("success", false, "code", 500, "message", "服务器内部错误，请稍后重试"));

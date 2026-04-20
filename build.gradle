@@ -30,6 +30,12 @@ dependencies {
 	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.5'
 	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.5'
 
+	// 阿里云号码认证服务 SDK（免资质签名，开箱即用）
+	// credentials-java 由 SDK 自动传递引入，无需显式声明
+	implementation 'com.aliyun:alibabacloud-dypnsapi20170525:2.0.0'
+	// 阿里云金融级实人认证 SDK
+	implementation 'com.aliyun:cloudauth20190307:2.1.1'
+
 	compileOnly 'org.projectlombok:lombok'
 	runtimeOnly 'com.mysql:mysql-connector-j'
 	annotationProcessor 'org.projectlombok:lombok'

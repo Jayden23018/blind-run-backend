@@ -33,6 +33,15 @@ public class NotificationTemplate {
     @Column(name = "template_text", length = 500, nullable = false)
     private String templateText;
 
+    /** TTS 口语化文本，用于语音播报 */
+    @Column(name = "tts_text", length = 500)
+    private String ttsText;
+
+    /** 通知优先级 */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 10, nullable = false)
+    private NotificationPriority priority = NotificationPriority.NORMAL;
+
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
 }

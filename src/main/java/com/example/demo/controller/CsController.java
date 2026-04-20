@@ -1,5 +1,6 @@
 package com.example.demo.controller;
 
+import com.example.demo.dto.EmergencyEventResponse;
 import com.example.demo.entity.EmergencyEvent;
 import com.example.demo.service.EmergencyService;
 import org.springframework.http.HttpStatus;
@@ -52,7 +53,10 @@ public class CsController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", e.getMessage()));
         }
         List<EmergencyEvent> events = emergencyService.getPendingEvents();
-        return ResponseEntity.ok(events);
+        List<EmergencyEventResponse> responses = events.stream()
+                .map(EmergencyEventResponse::from)
+                .toList();
+        return ResponseEntity.ok(responses);
     }
 
     /** 客服接手事件 */
@@ -85,6 +89,10 @@ public class CsController {
     @PutMapping("/emergency-events/{eventId}/resolve")
     public ResponseEntity<?> resolveEvent(@PathVariable Long eventId,
                                            @RequestParam(required = false) String notes) {
+        if (notes != null && notes.length() > 1000) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("success", false, "code", 400, "message", "备注不能超过1000个字符"));
+        }
         Long csUserId;
         try {
             csUserId = requireCsUser();

@@ -82,6 +82,10 @@ public class VolunteerService {
         volunteerAvailableTimeRepository.deleteByVolunteerId(userId);
         if (request.getAvailableTimeSlots() != null) {
             for (VolunteerAvailableTimeSlot slot : request.getAvailableTimeSlots()) {
+                if (slot.getStartTime() != null && slot.getEndTime() != null
+                        && !slot.getStartTime().isBefore(slot.getEndTime())) {
+                    throw new IllegalArgumentException("时间段开始时间必须早于结束时间");
+                }
                 VolunteerAvailableTime time = new VolunteerAvailableTime();
                 time.setVolunteerId(userId);
                 time.setDayOfWeek(slot.getDayOfWeek());

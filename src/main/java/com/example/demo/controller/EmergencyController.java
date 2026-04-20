@@ -4,6 +4,7 @@ import com.example.demo.dto.EmergencyTriggerRequest;
 import com.example.demo.entity.EmergencyEvent;
 import com.example.demo.entity.VolunteerAction;
 import com.example.demo.service.EmergencyService;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
@@ -27,7 +28,7 @@ public class EmergencyController {
 
     /** 触发紧急事件（盲人端） */
     @PostMapping("/trigger")
-    public ResponseEntity<?> triggerEmergency(@RequestBody EmergencyTriggerRequest request) {
+    public ResponseEntity<?> triggerEmergency(@Valid @RequestBody EmergencyTriggerRequest request) {
         Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
         EmergencyEvent event = emergencyService.triggerEmergency(userId, request);
         return ResponseEntity.ok(Map.of(

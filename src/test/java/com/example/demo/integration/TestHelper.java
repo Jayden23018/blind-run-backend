@@ -83,6 +83,7 @@ public class TestHelper {
             volunteerProfileRepository.findByUserId(userId).ifPresent(profile -> {
                 profile.setVerified(true);
                 profile.setVerificationStatus(com.example.demo.entity.VerificationStatus.APPROVED);
+                profile.setRegistrationStep(com.example.demo.entity.RegistrationStep.STEP_4_COMPLETED);
                 volunteerProfileRepository.save(profile);
             });
         }

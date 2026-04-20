@@ -16,12 +16,15 @@ import com.example.demo.util.PhoneMaskUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 订单业务逻辑服务 —— 处理订单的创建、接单、拒单、完成、取消
@@ -50,6 +53,9 @@ public class OrderService {
     /** 匹配超时提醒间隔（秒） */
     @Value("${app.match.timeout-seconds:300}")
     private long matchTimeoutSeconds;
+
+    /** 匹配超时最大提醒次数（超过后自动取消订单） */
+    private static final int MAX_MATCH_NOTIFY_COUNT = 3;
 
     public OrderService(RunOrderRepository runOrderRepository,
                         UserRepository userRepository,
@@ -131,6 +137,13 @@ public class OrderService {
     public void acceptOrder(Long orderId, Long volunteerId) {
         VolunteerProfile profile = volunteerProfileRepository.findByUserId(volunteerId)
                 .orElseThrow(() -> new OrderPermissionException("请先完成志愿者认证"));
+
+        // 新增：检查注册步骤
+        if (profile.getRegistrationStep() != RegistrationStep.STEP_4_COMPLETED) {
+            throw new OrderPermissionException("请先完成志愿者注册流程（当前步骤：" +
+                profile.getRegistrationStep().name() + "）");
+        }
+
         if (!Boolean.TRUE.equals(profile.getVerified())) {
             throw new OrderPermissionException("请先完成志愿者认证");
         }
@@ -155,18 +168,28 @@ public class OrderService {
 
         runOrderRepository.save(order);
 
-        if ("REMATCHING".equals(oldStatus)) {
-            notificationService.sendOrderStatusChange(orderId, oldStatus, "IN_PROGRESS",
-                    order.getBlindUser().getId(), volunteerId, "已为您匹配到新的志愿者，服务即将开始");
-        } else {
-            notificationService.sendOrderStatusChange(orderId, oldStatus, "IN_PROGRESS",
-                    order.getBlindUser().getId(), volunteerId, "志愿者已接单，服务即将开始");
-        }
+        // 通知盲人用户
+        String eventType = "REMATCHING".equals(oldStatus) ? "REMATCH_ACCEPTED" : "ORDER_ACCEPTED";
+        notifyBlindUser(order.getBlindUser().getId(), eventType, volunteerId);
 
         // 记录日志
         statusLogService.logStatusChange(orderId, oldStatus, "IN_PROGRESS", volunteerId, "志愿者接单");
 
         log.info("志愿者 {} 已接单，订单ID={}，原状态={}", volunteerId, orderId, oldStatus);
+    }
+
+    /**
+     * 志愿者接单（带乐观锁重试）
+     * 如果多个志愿者同时接单，只有一个能成功
+     */
+    @Transactional
+    public void acceptOrderWithRetry(Long orderId, Long volunteerId) {
+        try {
+            acceptOrder(orderId, volunteerId);
+        } catch (OptimisticLockingFailureException e) {
+            log.warn("志愿者 {} 接单 {} 时发生并发冲突，订单可能已被其他志愿者接走", volunteerId, orderId);
+            throw new OrderStatusException("订单已被其他志愿者接单，请刷新后重试");
+        }
     }
 
     /**
@@ -196,8 +219,9 @@ public class OrderService {
         runOrderRepository.save(order);
 
         statusLogService.logStatusChange(orderId, oldStatus, "DRIVER_EN_ROUTE", volunteerId, "志愿者已出发");
-        notificationService.sendOrderStatusChange(orderId, oldStatus, "DRIVER_EN_ROUTE",
-                order.getBlindUser().getId(), volunteerId, "志愿者已出发，正在前往您的位置");
+
+        // 通知盲人用户
+        notifyBlindUser(order.getBlindUser().getId(), "DRIVER_EN_ROUTE", volunteerId);
 
         log.info("志愿者 {} 已出发，订单ID={}", volunteerId, orderId);
     }
@@ -222,8 +246,9 @@ public class OrderService {
         runOrderRepository.save(order);
 
         statusLogService.logStatusChange(orderId, oldStatus, "DRIVER_ARRIVED", volunteerId, "志愿者已到达");
-        notificationService.sendOrderStatusChange(orderId, oldStatus, "DRIVER_ARRIVED",
-                order.getBlindUser().getId(), volunteerId, "志愿者已到达指定位置");
+
+        // 通知盲人用户
+        notifyBlindUser(order.getBlindUser().getId(), "DRIVER_ARRIVED", volunteerId);
 
         log.info("志愿者 {} 已到达，订单ID={}", volunteerId, orderId);
     }
@@ -256,8 +281,9 @@ public class OrderService {
         proximityService.clearProximityFlag(orderId);
 
         statusLogService.logStatusChange(orderId, oldStatus, "COMPLETED", volunteerId, "服务完成");
-        notificationService.sendOrderStatusChange(orderId, oldStatus, "COMPLETED",
-                order.getBlindUser().getId(), volunteerId, "服务已完成，感谢使用");
+
+        // 通知盲人用户
+        notificationService.sendNotification(order.getBlindUser().getId(), "ORDER_COMPLETED", TargetRole.BLIND_USER, null);
 
         log.info("志愿者 {} 结束了订单 {}，订单完成", volunteerId, orderId);
     }
@@ -323,8 +349,8 @@ public class OrderService {
                 runOrderRepository.save(order);
                 statusLogService.logStatusChange(orderId, oldStatus, "CANCELLED", userId,
                         "取消方=" + order.getCancelledBy());
-                notificationService.sendOrderStatusChange(orderId, oldStatus, "CANCELLED",
-                        order.getBlindUser().getId(), userId, "志愿者已取消服务");
+                // 通知盲人用户（志愿者取消服务）
+                notificationService.sendNotification(order.getBlindUser().getId(), "VOLUNTEER_CANCELLED", TargetRole.BLIND_USER, null);
                 log.info("订单 {} 已取消（IN_PROGRESS），取消方=VOLUNTEER", orderId);
             } else {
                 // PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED → REMATCHING
@@ -347,8 +373,7 @@ public class OrderService {
                 // 记录日志 + 通知盲人
                 statusLogService.logStatusChange(orderId, oldStatus, "REMATCHING", userId,
                         "志愿者取消，进入重新匹配，第" + order.getRematchCount() + "次");
-                notificationService.sendOrderStatusChange(orderId, oldStatus, "REMATCHING",
-                        order.getBlindUser().getId(), userId, "您的志愿者已取消服务，系统正在为您重新匹配，请稍候");
+                notificationService.sendNotification(order.getBlindUser().getId(), "REMATCHING", TargetRole.BLIND_USER, null);
 
                 // 重新推入匹配队列
                 eventPublisher.publishEvent(new OrderCreatedEvent(this, order));
@@ -371,9 +396,7 @@ public class OrderService {
         }
 
         // 推送提醒给盲人
-        notificationService.sendOrderStatusChange(orderId, "REMATCHING", "REMATCHING",
-                order.getBlindUser().getId(), null,
-                "暂时没有可用志愿者，您的订单仍在等待中，如需取消请手动操作");
+        notificationService.sendNotification(order.getBlindUser().getId(), "REMATCH_TIMEOUT", TargetRole.BLIND_USER, null);
 
         // 更新下次提醒时间（循环提醒）
         order.setRematchNotifyAt(LocalDateTime.now().plusSeconds(rematchTimeoutSeconds));
@@ -439,15 +462,33 @@ public class OrderService {
             return;
         }
 
-        notificationService.sendOrderStatusChange(orderId, "PENDING_MATCH", "PENDING_MATCH",
-                order.getBlindUser().getId(), null,
-                "暂时没有可用志愿者，如需取消请手动操作，或继续等待");
+        int notifyCount = order.getMatchNotifyCount() != null ? order.getMatchNotifyCount() : 0;
+        notifyCount++;
 
-        // 更新下次提醒时间（循环提醒）
+        if (notifyCount > MAX_MATCH_NOTIFY_COUNT) {
+            // 超过最大提醒次数，自动取消订单
+            String oldStatus = order.getStatus().name();
+            order.setStatus(OrderStatus.CANCELLED);
+            order.setCancelledBy(CancelledBy.BLIND);
+            order.setMatchNotifyAt(null);
+            runOrderRepository.save(order);
+            statusLogService.logStatusChange(orderId, oldStatus, "CANCELLED", null, "匹配超时自动取消");
+            notificationService.sendNotification(order.getBlindUser().getId(), "ORDER_AUTO_CANCELLED",
+                    TargetRole.BLIND_USER, null);
+            log.info("订单 {} 匹配超时已超过 {} 次，自动取消", orderId, MAX_MATCH_NOTIFY_COUNT);
+            return;
+        }
+
+        notificationService.sendNotification(order.getBlindUser().getId(), "NO_VOLUNTEER_AVAILABLE",
+                TargetRole.BLIND_USER, null);
+
+        // 更新提醒计数和下次提醒时间
+        order.setMatchNotifyCount(notifyCount);
         order.setMatchNotifyAt(LocalDateTime.now().plusSeconds(matchTimeoutSeconds));
         runOrderRepository.save(order);
 
-        log.info("订单 {} 匹配超时提醒已发送给盲人 {}", orderId, order.getBlindUser().getId());
+        log.info("订单 {} 匹配超时提醒已发送给盲人 {}（第 {}/{} 次）",
+                orderId, order.getBlindUser().getId(), notifyCount, MAX_MATCH_NOTIFY_COUNT);
     }
 
     /**
@@ -466,9 +507,7 @@ public class OrderService {
 
         // 通知志愿者
         if (order.getVolunteer() != null) {
-            notificationService.sendOrderStatusChange(orderId, "IN_PROGRESS", "IN_PROGRESS",
-                    order.getBlindUser().getId(), order.getVolunteer().getId(),
-                    "您有一个订单已超过结束时间1小时，请确认是否需要结束订单");
+            notificationService.sendNotification(order.getVolunteer().getId(), "ORDER_OVERDUE", TargetRole.VOLUNTEER, null);
         }
 
         order.setOverdueNotified(true);
@@ -504,4 +543,22 @@ public class OrderService {
     public record AvailableOrderResponse(Long orderId, String startAddress, double distanceKm,
                                           LocalDateTime plannedStart, LocalDateTime plannedEnd,
                                           String blindUserPhone) {}
+
+    // === 私有辅助方法 ===
+
+    /**
+     * 获取志愿者名字（用于通知消息）
+     */
+    private String getVolunteerName(Long volunteerId) {
+        return userRepository.findById(volunteerId).map(User::getName).orElse("志愿者");
+    }
+
+    /**
+     * 通知盲人用户（包含志愿者名称参数的统一方法）
+     */
+    private void notifyBlindUser(Long blindUserId, String eventType, Long volunteerId) {
+        Map<String, String> params = new HashMap<>();
+        params.put("volunteerName", getVolunteerName(volunteerId));
+        notificationService.sendNotification(blindUserId, eventType, TargetRole.BLIND_USER, params);
+    }
 }

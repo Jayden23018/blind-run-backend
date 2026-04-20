@@ -4,6 +4,7 @@ import com.example.demo.dto.CreateOrderRequest;
 import com.example.demo.dto.OrderResponse;
 import com.example.demo.entity.OrderStatus;
 import com.example.demo.entity.RunOrder;
+import com.example.demo.entity.TargetRole;
 import com.example.demo.entity.User;
 import com.example.demo.exception.DuplicateOrderException;
 import com.example.demo.exception.OrderNotFoundException;
@@ -148,6 +149,7 @@ class OrderServiceTest {
         // 模拟已认证的志愿者
         com.example.demo.entity.VolunteerProfile profile = new com.example.demo.entity.VolunteerProfile();
         profile.setVerified(true);
+        profile.setRegistrationStep(com.example.demo.entity.RegistrationStep.STEP_4_COMPLETED);
         when(volunteerProfileRepository.findByUserId(2L)).thenReturn(Optional.of(profile));
 
         when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
@@ -165,6 +167,7 @@ class OrderServiceTest {
     void testAcceptOrderWrongStatus() {
         com.example.demo.entity.VolunteerProfile profile = new com.example.demo.entity.VolunteerProfile();
         profile.setVerified(true);
+        profile.setRegistrationStep(com.example.demo.entity.RegistrationStep.STEP_4_COMPLETED);
         when(volunteerProfileRepository.findByUserId(2L)).thenReturn(Optional.of(profile));
 
         RunOrder order = new RunOrder();
@@ -181,6 +184,7 @@ class OrderServiceTest {
     void testAcceptOrderNotFound() {
         com.example.demo.entity.VolunteerProfile profile = new com.example.demo.entity.VolunteerProfile();
         profile.setVerified(true);
+        profile.setRegistrationStep(com.example.demo.entity.RegistrationStep.STEP_4_COMPLETED);
         when(volunteerProfileRepository.findByUserId(2L)).thenReturn(Optional.of(profile));
 
         when(runOrderRepository.findById(999L)).thenReturn(Optional.empty());
@@ -257,6 +261,7 @@ class OrderServiceTest {
 
         com.example.demo.entity.VolunteerProfile profile = new com.example.demo.entity.VolunteerProfile();
         profile.setVerified(true);
+        profile.setRegistrationStep(com.example.demo.entity.RegistrationStep.STEP_4_COMPLETED);
         when(volunteerProfileRepository.findByUserId(2L)).thenReturn(Optional.of(profile));
 
         when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
@@ -270,7 +275,6 @@ class OrderServiceTest {
         // 验证清除了重新匹配提醒时间
         assertNull(order.getRematchNotifyAt());
         // 验证发送了"新志愿者"通知
-        verify(notificationService).sendOrderStatusChange(eq(1001L), eq("REMATCHING"), eq("IN_PROGRESS"),
-                eq(1L), eq(2L), contains("新的志愿者"));
+        verify(notificationService).sendNotification(eq(1L), eq("REMATCH_ACCEPTED"), eq(TargetRole.BLIND_USER), any());
     }
 }
