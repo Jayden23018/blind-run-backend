@@ -7,6 +7,7 @@ import com.example.demo.entity.RunOrder;
 import com.example.demo.exception.OrderPermissionException;
 import com.example.demo.repository.RunOrderRepository;
 import com.example.demo.service.PrivateNumberService;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
@@ -33,7 +34,7 @@ public class CallController {
     /** 发起通话 */
     @PostMapping("/initiate")
     public ResponseEntity<?> initiateCall(@PathVariable Long orderId,
-                                           @RequestBody CallInitiateRequest request) {
+                                           @Valid @RequestBody CallInitiateRequest request) {
         Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
 
         RunOrder order = runOrderRepository.findByIdWithUsers(orderId)
@@ -47,16 +48,14 @@ public class CallController {
             return ResponseEntity.badRequest().body(Map.of("success", false, "message", "订单尚未被接单"));
         }
 
-        CallRole callerRole;
+        CallRole callerRole = request.getCallerRole();
         Long calleeId;
         CallRole calleeRole;
 
-        if ("BLIND_USER".equalsIgnoreCase(request.getCallerRole()) && userId.equals(blindUserId)) {
-            callerRole = CallRole.BLIND_USER;
+        if (callerRole == CallRole.BLIND_USER && userId.equals(blindUserId)) {
             calleeId = volunteerId;
             calleeRole = CallRole.VOLUNTEER;
-        } else if ("VOLUNTEER".equalsIgnoreCase(request.getCallerRole()) && userId.equals(volunteerId)) {
-            callerRole = CallRole.VOLUNTEER;
+        } else if (callerRole == CallRole.VOLUNTEER && userId.equals(volunteerId)) {
             calleeId = blindUserId;
             calleeRole = CallRole.BLIND_USER;
         } else {

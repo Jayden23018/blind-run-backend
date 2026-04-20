@@ -1,7 +1,7 @@
 package com.example.demo.config;
 
 import com.example.demo.filter.JwtFilter;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -37,8 +37,15 @@ import java.util.List;
 @EnableWebSecurity
 public class SecurityConfig {
 
-    @Autowired
-    private JwtFilter jwtFilter;
+    private final JwtFilter jwtFilter;
+
+    /** 允许的 CORS 来源域名列表，通过配置文件注入，开发环境默认允许 localhost */
+    @Value("${cors.allowed-origins:http://localhost:3000,http://localhost:5173}")
+    private String allowedOrigins;
+
+    public SecurityConfig(JwtFilter jwtFilter) {
+        this.jwtFilter = jwtFilter;
+    }
 
     /**
      * 安全过滤器链 —— 配置安全规则
@@ -49,7 +56,7 @@ public class SecurityConfig {
                 // 启用 CORS（允许前端跨域访问）
                 .cors(cors -> cors.configurationSource(request -> {
                     CorsConfiguration config = new CorsConfiguration();
-                    config.setAllowedOriginPatterns(List.of("*"));
+                    config.setAllowedOriginPatterns(List.of(allowedOrigins.split(",")));
                     config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
                     config.setAllowedHeaders(List.of("*"));
                     config.setAllowCredentials(true);
@@ -69,21 +76,17 @@ public class SecurityConfig {
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                         // WebSocket 握手端点允许匿名访问（认证在 HandshakeInterceptor 中处理）
                         .requestMatchers("/ws/volunteer/**").permitAll()
+                        .requestMatchers("/ws/blind/**").permitAll()
                         // 其他所有接口需要认证（必须携带有效 JWT token）
                         .anyRequest().authenticated()
                 )
-                // 未认证请求返回 401（而非默认的 403）
-                .exceptionHandling(ex -> ex
-                        .authenticationEntryPoint((request, response, authException) ->
-                                response.sendError(401, "未认证"))
-                )
-                // 在 Spring Security 的过滤器链中插入我们的 JWT 过滤器
-                // 在 UsernamePasswordAuthenticationFilter 之前执行
-                .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
                 // 未认证请求返回 401（默认返回 403，不适合 REST API）
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((request, response, authException) ->
-                                response.sendError(401, "未认证")));
+                                response.sendError(401, "未认证")))
+                // 在 Spring Security 的过滤器链中插入我们的 JWT 过滤器
+                // 在 UsernamePasswordAuthenticationFilter 之前执行
+                .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }

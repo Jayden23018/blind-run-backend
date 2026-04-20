@@ -64,7 +64,7 @@ public class OrderController {
     @PostMapping("/{id}/accept")
     public ResponseEntity<?> acceptOrder(@PathVariable Long id) {
         Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        orderService.acceptOrder(id, userId);
+        orderService.acceptOrderWithRetry(id, userId);
         return ResponseEntity.ok(Map.of("success", true, "orderId", id));
     }
 
@@ -147,23 +147,34 @@ public class OrderController {
 
         if ("BLIND".equalsIgnoreCase(role)) {
             if (status != null) {
+                OrderStatus orderStatus = parseOrderStatus(status);
                 orders = runOrderRepository.findByBlindUserIdAndStatusIn(
-                        userId, List.of(OrderStatus.valueOf(status)), pageable);
+                        userId, List.of(orderStatus), pageable);
             } else {
                 orders = runOrderRepository.findByBlindUserId(userId, pageable);
             }
         } else if ("VOLUNTEER".equalsIgnoreCase(role)) {
             if (status != null) {
+                OrderStatus orderStatus = parseOrderStatus(status);
                 orders = runOrderRepository.findByVolunteerIdAndStatusIn(
-                        userId, List.of(OrderStatus.valueOf(status)), pageable);
+                        userId, List.of(orderStatus), pageable);
             } else {
                 orders = runOrderRepository.findByVolunteerId(userId, pageable);
             }
         } else {
-            return ResponseEntity.badRequest().build();
+            throw new IllegalArgumentException("无效的角色参数，仅支持 BLIND 或 VOLUNTEER");
         }
 
         return ResponseEntity.ok(orders.map(this::toDetailResponse));
+    }
+
+    /** 安全解析订单状态枚举，无效值返回中文错误 */
+    private OrderStatus parseOrderStatus(String status) {
+        try {
+            return OrderStatus.valueOf(status);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("无效的订单状态: " + status);
+        }
     }
 
     /** 将 RunOrder 实体转换为 OrderDetailResponse DTO */

@@ -2,6 +2,7 @@ package com.example.demo.entity;
 
 import jakarta.persistence.*;
 import lombok.Data;
+import org.hibernate.annotations.Where;
 
 import java.time.LocalDateTime;
 
@@ -19,6 +20,7 @@ import java.time.LocalDateTime;
 @Data                           // Lombok 注解：自动生成 getter、setter、toString 等方法，省去手写
 @Entity                         // JPA 注解：标记这个类是一个数据库实体（对应一张表）
 @Table(name = "users")          // 指定数据库中的表名为 "users"
+@Where(clause = "deleted_at IS NULL")  // 自动过滤已删除用户
 public class User {
 
     /**

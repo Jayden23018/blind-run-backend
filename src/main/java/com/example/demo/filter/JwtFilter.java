@@ -1,6 +1,7 @@
 package com.example.demo.filter;
 
 import com.example.demo.util.JwtUtil;
+import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -57,10 +58,11 @@ public class JwtFilter extends OncePerRequestFilter {
             // 去掉 "Bearer " 前缀，得到纯 token
             String token = header.substring(7);
 
-            // 3. 验证 token 是否有效
-            if (jwtUtil.validateToken(token)) {
-                // 4. 从 token 中提取用户ID
-                Long userId = jwtUtil.getUserIdFromToken(token);
+            // 3. 解析并验证 token（单次解析，避免重复开销）
+            Claims claims = jwtUtil.parseToken(token);
+            if (claims != null) {
+                // 4. 从 claims 中提取用户ID
+                Long userId = Long.parseLong(claims.getSubject());
 
                 // 5. 创建认证对象，告诉 Spring "当前用户是 xxx"
                 //    参数依次是：主体（用户ID）、凭证（null，不需要）、权限列表（空）
@@ -68,7 +70,7 @@ public class JwtFilter extends OncePerRequestFilter {
                         new UsernamePasswordAuthenticationToken(userId, null, new ArrayList<>());
 
                 // 6. 如果是客服 token，将 csRole 存入 details
-                String csRole = jwtUtil.getCsRoleFromToken(token);
+                String csRole = claims.get("csRole", String.class);
                 if (csRole != null) {
                     authentication.setDetails(csRole);
                 }

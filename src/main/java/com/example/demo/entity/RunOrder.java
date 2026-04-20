@@ -113,6 +113,10 @@ public class RunOrder {
     @Column(name = "match_notify_at")
     private LocalDateTime matchNotifyAt;
 
+    /** 匹配超时已提醒次数（超过最大次数后自动取消） */
+    @Column(name = "match_notify_count")
+    private Integer matchNotifyCount = 0;
+
     /** 是否已发送超时挂起通知（超过结束时间1小时后提醒志愿者） */
     @Column(name = "overdue_notified")
     private Boolean overdueNotified = false;

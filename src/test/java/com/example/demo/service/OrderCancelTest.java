@@ -191,8 +191,7 @@ class OrderCancelTest {
         // 验证发布了匹配事件
         verify(eventPublisher).publishEvent(any());
         // 验证通知了盲人
-        verify(notificationService).sendOrderStatusChange(eq(1001L), eq("PENDING_ACCEPT"), eq("REMATCHING"),
-                eq(1L), eq(2L), contains("重新匹配"));
+        verify(notificationService).sendNotification(eq(1L), eq("REMATCHING"), eq(TargetRole.BLIND_USER), isNull());
     }
 
     /** 志愿者在 DRIVER_EN_ROUTE 取消 → REMATCHING */

@@ -87,11 +87,27 @@ src/main/java/com/example/demo/
 
 ## 详细文档
 
+### 📚 项目文档
+
 | 文档 | 说明 |
 |------|------|
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 系统架构指南 |
-| [API_REFERENCE.md](docs/API_REFERENCE.md) | 完整 API 参考 |
-| [DIAGRAMS.md](docs/DIAGRAMS.md) | 架构图、流程图、ERD |
+| [docs/README.md](docs/README.md) | 项目简介、技术栈、环境配置、快速开始 |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 系统架构、核心流程、设计决策 |
+| [docs/DIAGRAMS.md](docs/DIAGRAMS.md) | 数据模型图、状态机图、序列图、流程图 |
+| [docs/deployment.md](docs/deployment.md) | 部署指南（本地开发 + 生产环境） |
+| [docs/CHANGELOG.md](docs/CHANGELOG.md) | 版本变更记录 |
+
+### 🔌 API 文档
+
+| 文档 | 说明 |
+|------|------|
+| [docs/api/auth-api.md](docs/api/auth-api.md) | 认证 API（用户登录、客服登录） |
+| [docs/api/user-api.md](docs/api/user-api.md) | 用户 API（角色设置、档案管理、位置上报） |
+| [docs/api/registration-api.md](docs/api/registration-api.md) | 志愿者注册 API（4步流程、培训系统） |
+| [docs/api/order-api.md](docs/api/order-api.md) | 订单 API（创建、接单、状态流转、评价） |
+| [docs/api/emergency-api.md](docs/api/emergency-api.md) | 紧急求助 API（触发、响应、联系人管理） |
+| [docs/api/admin-api.md](docs/api/admin-api.md) | 管理 API（审核志愿者、培训课程、通知模板） |
+| [docs/api/websocket-api.md](docs/api/websocket-api.md) | WebSocket API（实时通信、消息类型） |
 
 ## API 概览
 

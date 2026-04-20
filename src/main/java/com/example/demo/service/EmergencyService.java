@@ -11,7 +11,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -22,6 +24,9 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @Service
 public class EmergencyService {
+
+    /** 紧急联系人短信通知内容（复用常量） */
+    private static final String EMERGENCY_CONTACT_SMS = "紧急通知：您的亲友在使用助盲跑服务时触发了紧急求助，请尽快联系。";
 
     private final EmergencyEventRepository eventRepository;
     private final EmergencyNotificationRepository notificationRepository;
@@ -58,9 +63,11 @@ public class EmergencyService {
      */
     @Transactional
     public EmergencyEvent triggerEmergency(Long userId, EmergencyTriggerRequest request) {
-        // 1. 冷却检查
+        // 1. 冷却检查（使用 SETNX 原子操作，避免竞态条件）
         String cooldownKey = "emergency:cooldown:" + userId;
-        if (Boolean.TRUE.equals(redisTemplate.hasKey(cooldownKey))) {
+        Boolean acquired = redisTemplate.opsForValue()
+                .setIfAbsent(cooldownKey, "1", cooldownSeconds, TimeUnit.SECONDS);
+        if (!Boolean.TRUE.equals(acquired)) {
             throw new IllegalStateException("紧急事件触发过于频繁，请稍后再试");
         }
 
@@ -85,8 +92,7 @@ public class EmergencyService {
 
         eventRepository.save(event);
 
-        // 4. 设置冷却 key
-        redisTemplate.opsForValue().set(cooldownKey, "1", cooldownSeconds, TimeUnit.SECONDS);
+        // 4. 冷却 key 已在步骤 1 中通过 setIfAbsent 设置
 
         // 5. 通知志愿者 + 发短信给盲人
         handleEmergencyTriggered(event, order);
@@ -154,6 +160,10 @@ public class EmergencyService {
 
         log.warn("志愿者超时未响应, eventId={}，进入严重处理", eventId);
 
+        // 通知盲人用户：志愿者未响应，已升级处理
+        notificationService.sendNotification(event.getUserId(), "EMERGENCY_VOLUNTEER_TIMEOUT",
+                TargetRole.BLIND_USER, null);
+
         // 超时视为严重 → 直接通知紧急联系人
         escalateToEmergencyContacts(event);
     }
@@ -199,7 +209,7 @@ public class EmergencyService {
         notification.setContactId(primaryContact.getId());
         notification.setNotifyType(NotifyType.SMS_TO_CONTACT);
         notification.setStatus(NotifyStatus.SENT);
-        notification.setContent("紧急通知：您的亲友在使用助盲跑服务时触发了紧急求助，请尽快联系。");
+        notification.setContent(EMERGENCY_CONTACT_SMS);
         notificationRepository.save(notification);
 
         event.setStatus(EmergencyStatus.CONTACT_NOTIFIED);
@@ -261,6 +271,13 @@ public class EmergencyService {
         eventRepository.save(event);
 
         if (order.getVolunteer() != null) {
+            // 通知盲人用户
+            Map<String, String> params = new HashMap<>();
+            params.put("volunteerName", order.getVolunteer().getName());
+            notificationService.sendNotification(event.getUserId(), "EMERGENCY_TRIGGERED",
+                    TargetRole.BLIND_USER, params);
+
+            // 通知志愿者
             notificationService.sendEmergencyVolunteerAlert(event, order.getVolunteer().getId());
         }
 
@@ -277,8 +294,7 @@ public class EmergencyService {
         EmergencyContact primaryContact = contactRepository
                 .findByUserIdAndIsPrimaryTrue(event.getUserId()).orElse(null);
         if (primaryContact != null) {
-            notificationService.sendSms(primaryContact.getPhone(),
-                    "紧急通知：您的亲友在使用助盲跑服务时触发了紧急求助，请尽快联系。");
+            notificationService.sendSms(primaryContact.getPhone(), EMERGENCY_CONTACT_SMS);
 
             EmergencyNotification notification = new EmergencyNotification();
             notification.setEventId(event.getId());
@@ -291,8 +307,11 @@ public class EmergencyService {
             event.setStatus(EmergencyStatus.CONTACT_NOTIFIED);
             eventRepository.save(event);
 
-            notificationService.sendEmergencyContactNotified(
-                    event.getUserId(), event.getId(), primaryContact.getName());
+            // 通知盲人用户
+            Map<String, String> params = new HashMap<>();
+            params.put("contactName", primaryContact.getName());
+            notificationService.sendNotification(event.getUserId(), "EMERGENCY_CONTACT_NOTIFIED",
+                    TargetRole.BLIND_USER, params);
         } else {
             log.warn("未找到主要紧急联系人, userId={}", event.getUserId());
         }

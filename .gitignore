@@ -42,6 +42,8 @@ out/
 ### Application ###
 uploads/
 *.log
+gradle.properties
+start-with-correct-env.sh
 
 ### Claude Code ###
 .claude.local.md

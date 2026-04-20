@@ -1,8 +1,8 @@
-# Blind Running Companion (助盲跑) - Mermaid Diagrams
+# 助盲跑 - Mermaid 图表
 
 ---
 
-## 1. Entity Relationship Diagram
+## 1. 实体关系图
 
 ```mermaid
 erDiagram
@@ -150,99 +150,99 @@ erDiagram
 
 ---
 
-## 2. Order State Machine
+## 2. 订单状态机
 
 ```mermaid
 stateDiagram-v2
-    [*] --> PENDING_MATCH: Blind creates order
+    [*] --> PENDING_MATCH: 盲人创建订单
 
-    PENDING_MATCH --> PENDING_ACCEPT: System matches volunteers
-    PENDING_MATCH --> IN_PROGRESS: Volunteer accepts directly
-    PENDING_MATCH --> CANCELLED: Blind cancels
+    PENDING_MATCH --> PENDING_ACCEPT: 系统匹配志愿者
+    PENDING_MATCH --> IN_PROGRESS: 志愿者直接接单
+    PENDING_MATCH --> CANCELLED: 盲人取消
 
-    PENDING_ACCEPT --> IN_PROGRESS: Volunteer accepts
-    PENDING_ACCEPT --> CANCELLED: Blind cancels
-    PENDING_ACCEPT --> REMATCHING: Volunteer cancels
+    PENDING_ACCEPT --> IN_PROGRESS: 志愿者接单
+    PENDING_ACCEPT --> CANCELLED: 盲人取消
+    PENDING_ACCEPT --> REMATCHING: 志愿者取消
 
-    IN_PROGRESS --> DRIVER_EN_ROUTE: Volunteer en-route
-    IN_PROGRESS --> COMPLETED: Finish / Timeout
-    IN_PROGRESS --> CANCELLED: Volunteer cancel (no-show)
+    IN_PROGRESS --> DRIVER_EN_ROUTE: 志愿者出发
+    IN_PROGRESS --> COMPLETED: 完成/超时
+    IN_PROGRESS --> CANCELLED: 志愿者取消（爽约）
 
-    DRIVER_EN_ROUTE --> DRIVER_ARRIVED: Volunteer arrives
-    DRIVER_EN_ROUTE --> COMPLETED: Finish
-    DRIVER_EN_ROUTE --> REMATCHING: Volunteer cancels
+    DRIVER_EN_ROUTE --> DRIVER_ARRIVED: 志愿者到达
+    DRIVER_EN_ROUTE --> COMPLETED: 完成
+    DRIVER_EN_ROUTE --> REMATCHING: 志愿者取消
 
-    DRIVER_ARRIVED --> COMPLETED: Finish
-    DRIVER_ARRIVED --> REMATCHING: Volunteer cancels
+    DRIVER_ARRIVED --> COMPLETED: 完成
+    DRIVER_ARRIVED --> REMATCHING: 志愿者取消
 
-    REMATCHING --> IN_PROGRESS: New volunteer accepts
-    REMATCHING --> CANCELLED: Blind cancels
+    REMATCHING --> IN_PROGRESS: 新志愿者接单
+    REMATCHING --> CANCELLED: 盲人取消
 
     COMPLETED --> [*]
     CANCELLED --> [*]
 
     note right of PENDING_MATCH
-        Order created, matching
-        nearby volunteers
+        订单已创建，
+        正在匹配附近志愿者
     end note
 
     note right of REMATCHING
-        Volunteer cancelled,
-        system re-matching
+        志愿者已取消，
+        系统正在重新匹配
     end note
 
     note right of DRIVER_EN_ROUTE
-        Volunteer heading to
-        meeting point
+        志愿者正在前往
+        会合点
     end note
 
     note right of DRIVER_ARRIVED
-        Volunteer at start point,
-        ready to begin
+        志愿者已到达起点，
+        准备开始服务
     end note
 ```
 
 ---
 
-## 3. Emergency Event Flow
+## 3. 紧急事件流程
 
 ```mermaid
 sequenceDiagram
-    actor Blind as Blind User
+    actor Blind as 盲人用户
     participant ES as EmergencyService
     participant Redis as Redis
     participant NS as NotificationService
     participant WS as UnifiedSessionRegistry
-    actor Vol as Volunteer
-    actor CS as CS User
-    participant Contact as Emergency Contact
+    actor Vol as 志愿者
+    actor CS as 客服用户
+    participant Contact as 紧急联系人
     participant TS as TimeoutScheduler
 
     Blind->>ES: POST /api/emergency/trigger
-    ES->>Redis: Check cooldown key (60s)
-    ES->>ES: Validate order ownership
-    ES->>ES: Create event (PENDING)
+    ES->>Redis: 检查冷却键（60秒）
+    ES->>ES: 验证订单归属
+    ES->>ES: 创建事件（PENDING）
 
-    ES->>NS: Send SMS to blind
-    ES->>ES: Set VOLUNTEER_NOTIFIED + volunteer_timeout_at = now()+30s
-    ES->>WS: Push EMERGENCY_VOLUNTEER_ALERT to volunteer
-    ES->>WS: Push EMERGENCY_ALERT to CS
+    ES->>NS: 发送短信给盲人
+    ES->>ES: 设置状态 VOLUNTEER_NOTIFIED + volunteer_timeout_at = now()+30s
+    ES->>WS: 推送 EMERGENCY_VOLUNTEER_ALERT 给志愿者
+    ES->>WS: 推送 EMERGENCY_ALERT 给客服
     ES-->>Blind: {eventId, status: VOLUNTEER_NOTIFIED}
 
-    alt Volunteer NEED_HELP (within 30s)
+    alt 志愿者需要帮助（30秒内）
         Vol->>ES: PUT volunteer-response?action=NEED_HELP
-        ES->>ES: Set VOLUNTEER_CONFIRMED
-        ES->>NS: Send SMS to emergency contact
-        ES->>WS: Push EMERGENCY_RESOLVED_BY_VOLUNTEER to CS + Blind
-    else Volunteer FALSE_ALARM
+        ES->>ES: 设置状态 VOLUNTEER_CONFIRMED
+        ES->>NS: 发送短信给紧急联系人
+        ES->>WS: 推送 EMERGENCY_RESOLVED_BY_VOLUNTEER 给客服 + 盲人
+    else 志愿者误触
         Vol->>ES: PUT volunteer-response?action=FALSE_ALARM
-        ES->>ES: Set FALSE_ALARM
-        ES->>WS: Push resolved notification
-    else 30s timeout — no response (DB polling)
-        TS->>TS: Poll every 10s: status=VOLUNTEER_NOTIFIED AND volunteer_timeout_at < NOW()
+        ES->>ES: 设置状态 FALSE_ALARM
+        ES->>WS: 推送已解决通知
+    else 30秒超时 — 无响应（数据库轮询）
+        TS->>TS: 每10秒轮询：status=VOLUNTEER_NOTIFIED AND volunteer_timeout_at < NOW()
         TS->>ES: handleVolunteerTimeout(eventId)
-        ES->>ES: Check status still VOLUNTEER_NOTIFIED
-        ES->>ES: Escalate → notify emergency contact
+        ES->>ES: 检查状态仍为 VOLUNTEER_NOTIFIED
+        ES->>ES: 升级 → 通知紧急联系人
     end
 
     CS->>ES: Accept → Notify Contact → Resolve / False Alarm
@@ -250,7 +250,7 @@ sequenceDiagram
 
 ---
 
-## 4. Authentication Flow
+## 4. 认证流程
 
 ```mermaid
 sequenceDiagram
@@ -270,11 +270,11 @@ sequenceDiagram
     Client->>AuthCtrl: POST /api/auth/verify-code {phone, code}
     AuthCtrl->>VCS: verifyCode(phone, code)
     VCS->>Redis: GET sms:code:{phone}
-    VCS->>Redis: DELETE on success
+    VCS->>Redis: 成功后删除
     VCS-->>AuthCtrl: true
 
     AuthCtrl->>UserRepo: findByPhone(phone)
-    alt New user
+    alt 新用户
         AuthCtrl->>UserRepo: save(newUser)
     end
 
@@ -285,11 +285,11 @@ sequenceDiagram
 
 ---
 
-## 4b. CS Authentication Flow
+## 4b. 客服认证流程
 
 ```mermaid
 sequenceDiagram
-    actor CS as CS Dashboard
+    actor CS as 客服控制台
     participant Ctrl as CsAuthController
     participant Svc as CSAuthService
     participant Repo as CSUserRepository
@@ -299,18 +299,18 @@ sequenceDiagram
     Ctrl->>Svc: login(username, password)
     Svc->>Repo: findByUsername(username)
 
-    alt User not found
+    alt 用户不存在
         Repo-->>Svc: empty
         Svc-->>Ctrl: RuntimeException("用户名或密码错误")
         Ctrl-->>CS: 401 {error: "..."}
-    else User found
+    else 用户存在
         Repo-->>Svc: CSUser
         Svc->>Svc: BCrypt.matches(password, passwordHash)
 
-        alt Password wrong
+        alt 密码错误
             Svc-->>Ctrl: RuntimeException("用户名或密码错误")
             Ctrl-->>CS: 401 {error: "..."}
-        else Password correct
+        else 密码正确
             Svc->>Jwt: generateToken(userId, csRole)
             Jwt-->>Svc: JWT with csRole claim
             Svc-->>Ctrl: [token, role]
@@ -321,50 +321,50 @@ sequenceDiagram
 
 ---
 
-## 4c. Rematch Flow (Volunteer Cancel)
+## 4c. 重新匹配流程（志愿者取消）
 
 ```mermaid
 sequenceDiagram
-    actor Vol as Volunteer
+    actor Vol as 志愿者
     participant OS as OrderService
     participant EP as EventPublisher
     participant NS as NotificationService
-    actor Blind as Blind User
+    actor Blind as 盲人用户
     participant TS as TimeoutScheduler
-    actor NewVol as New Volunteer
+    actor NewVol as 新志愿者
 
     Vol->>OS: POST /api/orders/{id}/cancel
-    OS->>OS: Detect volunteer cancel (PENDING_ACCEPT/EN_ROUTE/ARRIVED)
-    OS->>OS: Set status = REMATCHING, clear volunteerId, rematchCount++
-    OS->>OS: Set rematchNotifyAt = now() + 300s
+    OS->>OS: 检测到志愿者取消（PENDING_ACCEPT/EN_ROUTE/ARRIVED）
+    OS->>OS: 设置状态 = REMATCHING，清除 volunteerId，rematchCount++
+    OS->>OS: 设置 rematchNotifyAt = now() + 300s
     OS->>EP: publishEvent(OrderCreatedEvent)
-    OS->>NS: sendOrderStatusChange → blind: "志愿者已取消，正在重新匹配"
+    OS->>NS: sendOrderStatusChange → 盲人："志愿者已取消，正在重新匹配"
     OS-->>Vol: 200 OK
 
-    alt 5 min timeout — no volunteer (DB polling)
-        TS->>TS: Poll every 10s: status=REMATCHING AND rematch_notify_at < NOW()
+    alt 5分钟超时 — 无志愿者（数据库轮询）
+        TS->>TS: 每10秒轮询：status=REMATCHING AND rematch_notify_at < NOW()
         TS->>OS: handleRematchTimeout(orderId)
-        OS->>NS: sendOrderStatusChange → blind: "暂时没有可用志愿者，仍在等待"
-        OS->>OS: Update rematchNotifyAt = now() + 300s (cycle)
-    else New volunteer accepts
+        OS->>NS: sendOrderStatusChange → 盲人："暂时没有可用志愿者，仍在等待"
+        OS->>OS: 更新 rematchNotifyAt = now() + 300s（循环）
+    else 新志愿者接单
         NewVol->>OS: POST /api/orders/{id}/accept
-        OS->>OS: Clear rematchNotifyAt
-        OS->>OS: Set status = IN_PROGRESS
-        OS->>NS: sendOrderStatusChange → blind: "已为您匹配到新的志愿者"
-    else Blind cancels during REMATCHING
+        OS->>OS: 清除 rematchNotifyAt
+        OS->>OS: 设置状态 = IN_PROGRESS
+        OS->>NS: sendOrderStatusChange → 盲人："已为您匹配到新的志愿者"
+    else 盲人在REMATCHING期间取消
         Blind->>OS: POST /api/orders/{id}/cancel
-        OS->>OS: Clear rematchNotifyAt
-        OS->>OS: Set status = CANCELLED
+        OS->>OS: 清除 rematchNotifyAt
+        OS->>OS: 设置状态 = CANCELLED
     end
 ```
 
 ---
 
-## 5. Order Matching Flow
+## 5. 订单匹配流程
 
 ```mermaid
 sequenceDiagram
-    actor Blind as Blind User
+    actor Blind as 盲人用户
     participant OrderSvc as OrderService
     participant EventPub as Event Publisher
     participant MatchSvc as MatchingService
@@ -373,41 +373,41 @@ sequenceDiagram
     participant WS as UnifiedSessionRegistry
 
     Blind->>OrderSvc: POST /api/orders
-    OrderSvc->>OrderSvc: Validate times + no active orders + has contacts
-    OrderSvc->>OrderSvc: Save order (PENDING_MATCH)
+    OrderSvc->>OrderSvc: 验证时间 + 无进行中订单 + 有紧急联系人
+    OrderSvc->>OrderSvc: 保存订单（PENDING_MATCH）
     OrderSvc->>EventPub: publish(OrderCreatedEvent)
-    EventPub-->>Blind: 200 Created
+    EventPub-->>Blind: 201 Created
 
-    Note over MatchSvc: Async matching starts
+    Note over MatchSvc: 异步匹配开始
     MatchSvc->>LocSvc: getOnlineVolunteerLocations()
     LocSvc->>Redis: KEYS vol:loc:*
 
-    loop For each volunteer
-        MatchSvc->>MatchSvc: Haversine distance to order
+    loop 对每个志愿者
+        MatchSvc->>MatchSvc: Haversine 距离计算到订单
     end
 
-    MatchSvc->>MatchSvc: Sort by distance, limit 3
+    MatchSvc->>MatchSvc: 按距离排序，限制3个
 
-    loop Selected candidates
+    loop 选中的候选人
         MatchSvc->>WS: sendToUser(volunteerId, NEW_ORDER)
     end
 
-    MatchSvc->>OrderSvc: Update status PENDING_ACCEPT
+    MatchSvc->>OrderSvc: 更新状态为 PENDING_ACCEPT
 ```
 
 ---
 
-## 6. System Architecture Overview
+## 6. 系统架构概览
 
 ```mermaid
 flowchart TD
-    subgraph "Client Layer"
-        A[Blind User App]
-        B[Volunteer App]
-        C[CS Dashboard]
+    subgraph "客户端层"
+        A[盲人用户 App]
+        B[志愿者 App]
+        C[客服控制台]
     end
 
-    subgraph "API Layer — 14 Controllers"
+    subgraph "API 层 — 14个控制器"
         D[AuthController]
         E[RoleController]
         F[BlindController + BlindLocationController]
@@ -421,7 +421,7 @@ flowchart TD
         N[UserController]
     end
 
-    subgraph "Service Layer — 20 Services"
+    subgraph "服务层 — 20个服务"
         O[AuthService + CSAuthService]
         P[OrderService]
         Q[MatchingService]
@@ -434,9 +434,9 @@ flowchart TD
         X[VolunteerLocationService]
     end
 
-    subgraph "Data Layer"
-        Y[(MySQL — 15 tables)]
-        Z[(Redis — 5 key patterns)]
+    subgraph "数据层"
+        Y[(MySQL — 15张表)]
+        Z[(Redis — 5个键模式)]
     end
 
     A --> D & F & G & I & J & M & N
@@ -458,119 +458,119 @@ flowchart TD
 
 ---
 
-## 7. WebSocket Lifecycle
+## 7. WebSocket 生命周期
 
 ```mermaid
 sequenceDiagram
-    actor Client as Any Client (Blind/Volunteer/CS)
+    actor Client as 任意客户端（盲人/志愿者/客服）
     participant Handshake as JwtHandshakeInterceptor
     participant Handler as VolunteerWebSocketHandler
     participant Registry as UnifiedSessionRegistry
 
     Client->>Handshake: ws://host/ws/volunteer?token=jwt
-    Handshake->>Handshake: Validate JWT, extract userId
-    Handshake->>Handler: Connect with userId attribute
+    Handshake->>Handshake: 验证 JWT，提取 userId
+    Handshake->>Handler: 带 userId 属性连接
     Handler->>Registry: register(userId, role, session)
-    Handler-->>Client: Connected
+    Handler-->>Client: 已连接
 
-    Note over Registry: Multi-role routing
+    Note over Registry: 多角色路由
     Registry->>Client: sendToUser(userId, json)
     Registry->>Client: sendToCs(json)
 
-    Client->>Handler: WebSocket close
+    Client->>Handler: WebSocket 关闭
     Handler->>Registry: unregister(userId)
 ```
 
 ---
 
-## 8. Proximity Detection Flow
+## 8. 接近检测流程
 
 ```mermaid
 flowchart TD
-    A[Volunteer reports location] --> B[VolunteerLocationService.updateLocation]
-    B --> C[Write Redis vol:loc:userId + MySQL]
+    A[志愿者上报位置] --> B[VolunteerLocationService.updateLocation]
+    B --> C[写入 Redis vol:loc:userId + MySQL]
     C --> D[forwardLocationToBlind]
-    D --> E{Active order exists?}
-    E -->|No| F[Stop]
-    E -->|Yes| G[Push VOLUNTEER_LOCATION_UPDATE to blind]
-    G --> H{Order status = DRIVER_EN_ROUTE?}
-    H -->|No| F
-    H -->|Yes| I[Get blind location from Redis blind:loc:userId]
-    I --> J{Blind location available?}
-    J -->|No| F
-    J -->|Yes| K[ProximityService.checkAndNotify]
-    K --> L[Haversine distance calc]
-    L --> M{Distance < threshold?}
-    M -->|No| F
-    M -->|Yes| N{Already notified? Redis proximity:notified:orderId}
-    N -->|Yes| F
-    N -->|No| O[Set proximity:notified:orderId in Redis]
-    O --> P[WebSocket PROXIMITY_ALERT to blind + volunteer]
+    D --> E{存在进行中的订单?}
+    E -->|否| F[停止]
+    E -->|是| G[推送 VOLUNTEER_LOCATION_UPDATE 给盲人]
+    G --> H{订单状态 = DRIVER_EN_ROUTE?}
+    H -->|否| F
+    H -->|是| I[从 Redis 获取盲人位置 blind:loc:userId]
+    I --> J{盲人位置可用?}
+    J -->|否| F
+    J -->|是| K[ProximityService.checkAndNotify]
+    K --> L[Haversine 距离计算]
+    L --> M{距离 < 阈值?}
+    M -->|否| F
+    M -->|是| N{已提醒过？Redis proximity:notified:orderId}
+    N -->|是| F
+    N -->|否| O[在 Redis 中设置 proximity:notified:orderId]
+    O --> P[WebSocket 推送 PROXIMITY_ALERT 给盲人和志愿者]
 ```
 
 ---
 
-## Key Design Patterns
+## 关键设计模式
 
-### 1. Event-Driven Architecture
-- Order creation → `OrderCreatedEvent` → `@Async @EventListener` in MatchingService
-- Decouples order creation from matching logic
+### 1. 事件驱动架构
+- 订单创建 → `OrderCreatedEvent` → `@Async @EventListener` 在 MatchingService 中
+- 解耦订单创建与匹配逻辑
 
-### 2. Dual-Write Caching
-- Volunteer locations: Redis (TTL 30s) + MySQL
-- Blind locations: Redis (TTL 30s) only
-- Primary: Redis for speed. Fallback: MySQL for persistence.
+### 2. 双写缓存
+- 志愿者位置：Redis（TTL 30秒）+ MySQL
+- 盲人位置：仅 Redis（TTL 30秒）
+- 主存储：Redis 用于快速访问。备份：MySQL 用于持久化。
 
-### 3. Optimistic Locking
-- `RunOrder.@Version` prevents concurrent accept
+### 3. 乐观锁
+- `RunOrder.@Version` 防止并发接单
 - `OptimisticLockingFailureException` → 409 Conflict
 
-### 4. Unified Session Registry
-- Single registry for blind, volunteer, and CS WebSocket sessions
-- Replaces per-role `VolunteerSessionRegistry`
+### 4. 统一会话注册表
+- 单个注册表用于盲人、志愿者和客服 WebSocket 会话
+- 替代旧版按角色分离的会话注册表，统一为 `UnifiedSessionRegistry`
 
-### 5. DB-Driven Polling (TimeoutScheduler)
-- Replaces `ScheduledExecutorService` and Redis timeout keys
-- DB fields (`volunteer_timeout_at`, `rematch_notify_at`, `match_notify_at`) as timeout markers
-- 4 polling methods: emergency timeout (10s), rematch timeout (10s), match timeout (10s), overdue orders (60s)
-- Crash-safe: timers survive server restart (persisted in DB)
+### 5. 数据库驱动轮询（TimeoutScheduler）
+- 替代 `ScheduledExecutorService` 和 Redis 超时键
+- 数据库字段（`volunteer_timeout_at`、`rematch_notify_at`、`match_notify_at`）作为超时标记
+- 4个轮询方法：紧急超时（10秒）、重新匹配超时（10秒）、匹配超时（10秒）、超时订单（60秒）
+- 崩溃安全：定时器在服务器重启后仍然有效（持久化在数据库中）
 
-### 6. Dedup / Cooldown Keys
-- `emergency:cooldown:{userId}` — trigger rate limit (60s)
-- `proximity:notified:{orderId}` — proximity alert dedup
+### 6. 去重/冷却键
+- `emergency:cooldown:{userId}` — 触发速率限制（60秒）
+- `proximity:notified:{orderId}` — 接近提醒去重
 
 ---
 
-## Configuration Properties
+## 配置属性
 
 ```properties
-# Matching
+# 匹配算法
 app.matching.max-distance-km=10
 app.matching.max-candidates=3
 
 # WebSocket
 app.websocket.endpoint=/ws/volunteer
 
-# Location TTL
+# 位置 TTL
 app.volunteer.location-ttl-seconds=30
 
-# Proximity
+# 接近检测
 app.proximity.threshold-meters=100
 
-# Emergency
+# 紧急事件
 app.emergency.cooldown-seconds=60
 app.emergency.volunteer-timeout-seconds=30
 
-# Rematch
+# 重新匹配
 app.rematch.timeout-seconds=300
 
-# Match timeout
+# 匹配超时
 app.match.timeout-seconds=300
 
-# Privacy Number
+# 隐私号
 aliyun.private-number.enabled=false
 
-# File Upload
+# 文件上传
 spring.servlet.multipart.max-file-size=10MB
 app.upload.dir=/tmp/blindrun-uploads/
 ```

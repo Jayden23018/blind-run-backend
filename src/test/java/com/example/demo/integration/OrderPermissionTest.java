@@ -151,7 +151,7 @@ class OrderPermissionTest extends BaseIntegrationTest {
         JsonNode json = testHelper.extractJson(response.getBody());
         assertThat(json.get("success").asBoolean()).isFalse();
         assertThat(json.get("code").asInt()).isEqualTo(403);
-        assertThat(json.get("message").asText()).contains("请先完成志愿者认证");
+        assertThat(json.get("message").asText()).contains("请先完成志愿者注册流程");
 
         System.out.println("✅ TC-PERM-05 passed — 未认证志愿者接单返回403");
     }
