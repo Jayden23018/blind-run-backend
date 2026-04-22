@@ -1,5 +1,6 @@
 package com.example.demo.dto;
 
+import com.example.demo.entity.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
@@ -20,4 +21,19 @@ public class BlindProfileUpdateRequest {
 
     @Size(max = 500, message = "特殊需求不能超过500个字符")
     private String specialNeeds;
+
+    /** 视力状况 */
+    private VisionLevel visionLevel;
+
+    /** 是否常带导盲犬 */
+    private Boolean hasGuideDog;
+
+    /** 牵引方式偏好 */
+    private TetherPreference tetherPreference;
+
+    /** 聊天偏好 */
+    private ChatPreference chatPreference;
+
+    /** 默认配速偏好 */
+    private PacePreference defaultPace;
 }

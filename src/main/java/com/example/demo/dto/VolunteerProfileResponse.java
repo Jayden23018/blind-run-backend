@@ -1,5 +1,6 @@
 package com.example.demo.dto;
 
+import com.example.demo.entity.PacePreference;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 
@@ -14,4 +15,6 @@ public class VolunteerProfileResponse {
     private String name;
     private String verificationStatus;
     private List<VolunteerAvailableTimeSlot> availableTimeSlots;
+    private Boolean acceptsGuideDog;
+    private PacePreference paceRange;
 }

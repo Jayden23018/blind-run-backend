@@ -33,11 +33,11 @@ class ConcurrencyTest extends BaseIntegrationTest {
         testHelper.updateVolunteerLocation(volAToken, 39.9242, 116.4677, true);
         testHelper.updateVolunteerLocation(volBToken, 39.9300, 116.4680, true);
 
-        // 3. 盲人下单 → 等待 PENDING_ACCEPT
+        // 3. 盲人下单 → 等待异步派单
         Long orderId = testHelper.createOrder(blindToken, 39.9042, 116.4674, "朝阳公园南门",
                 TestHelper.defaultStartTime(), TestHelper.defaultEndTime());
 
-        testHelper.waitForOrderStatus(blindToken, orderId, OrderStatus.PENDING_ACCEPT, 5);
+        Thread.sleep(500); // 等待异步 DispatchService 启动
 
         // 4. 用 CountDownLatch 保证两个线程同时发起 accept
         CountDownLatch startLatch = new CountDownLatch(1);

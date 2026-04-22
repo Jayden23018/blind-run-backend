@@ -1,6 +1,6 @@
 package com.example.demo.dto;
 
-import com.example.demo.entity.BlindVerifyStatus;
+import com.example.demo.entity.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 
@@ -15,4 +15,10 @@ public class BlindProfileResponse {
     private String runningPace;
     private String specialNeeds;
     private BlindVerifyStatus verifyStatus;
+
+    private VisionLevel visionLevel;
+    private Boolean hasGuideDog;
+    private TetherPreference tetherPreference;
+    private ChatPreference chatPreference;
+    private PacePreference defaultPace;
 }

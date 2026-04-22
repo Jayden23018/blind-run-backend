@@ -87,6 +87,8 @@ public class TimeoutScheduler {
                         OrderStatus.PENDING_MATCH, LocalDateTime.now());
 
         for (RunOrder order : orders) {
+            // 跳过由 DispatchScheduler 管理的派单订单
+            if (order.getDispatchStartedAt() != null) continue;
             try {
                 orderService.handleMatchTimeout(order.getId());
             } catch (Exception e) {

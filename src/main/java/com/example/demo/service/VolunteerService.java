@@ -61,7 +61,9 @@ public class VolunteerService {
         return new VolunteerProfileResponse(
                 profile.getName(),
                 profile.getVerificationStatus().name(),
-                slots
+                slots,
+                profile.getAcceptsGuideDog(),
+                profile.getPaceRange()
         );
     }
 
@@ -76,6 +78,8 @@ public class VolunteerService {
                 .orElseThrow(() -> new ResourceNotFoundException("志愿者资料不存在"));
 
         profile.setName(request.getName());
+        if (request.getAcceptsGuideDog() != null) profile.setAcceptsGuideDog(request.getAcceptsGuideDog());
+        if (request.getPaceRange() != null) profile.setPaceRange(request.getPaceRange());
         volunteerProfileRepository.save(profile);
 
         // 替换可用时间段：先删后插

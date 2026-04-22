@@ -99,6 +99,41 @@ public class VolunteerProfile {
     @Column(name = "emergency_experience", columnDefinition = "TEXT")
     private String emergencyExperience;
 
+    /** 是否接受携带导盲犬的订单 */
+    @Column(name = "accepts_guide_dog", nullable = false)
+    private Boolean acceptsGuideDog = true;
+
+    /** 志愿者可适应的配速范围 */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "pace_range", length = 20, nullable = false)
+    private PacePreference paceRange = PacePreference.NO_PREFERENCE;
+
+    // ========== 派单评分相关字段 ==========
+
+    /** 平均评分（1.0-5.0），null 表示尚无评价 */
+    @Column(name = "avg_rating")
+    private Double avgRating;
+
+    /** 累计评价数 */
+    @Column(name = "total_ratings")
+    private Integer totalRatings = 0;
+
+    /** 累计被派单次数 */
+    @Column(name = "total_dispatched")
+    private Integer totalDispatched = 0;
+
+    /** 累计接单次数 */
+    @Column(name = "total_accepted")
+    private Integer totalAccepted = 0;
+
+    /** 累计拒绝/超时次数 */
+    @Column(name = "total_declined")
+    private Integer totalDeclined = 0;
+
+    /** 接单率（0.0-1.0），null 表示尚无派单记录 */
+    @Column(name = "acceptance_rate")
+    private Double acceptanceRate;
+
     /** 身份证审核拒绝原因 */
     @Column(name = "id_verify_rejection_reason", length = 500)
     private String idVerifyRejectionReason;

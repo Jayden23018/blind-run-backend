@@ -158,11 +158,10 @@ class UserTest extends BaseIntegrationTest {
         Long orderId = testHelper.createOrder(blindToken, 39.9042, 116.4674, "朝阳公园南门",
                 LocalDateTime.now().plusHours(1), LocalDateTime.now().plusHours(2));
 
-        // 等待匹配完成后志愿者接单
+        // 等待异步派单后志愿者接单
         try {
-            testHelper.waitForOrderStatus(blindToken, orderId,
-                    com.example.demo.entity.OrderStatus.PENDING_ACCEPT, 5);
-            testHelper.acceptOrder(volToken, orderId);
+            Thread.sleep(500); // 等待异步 DispatchService 启动
+            testHelper.respondAccept(volToken, orderId);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }

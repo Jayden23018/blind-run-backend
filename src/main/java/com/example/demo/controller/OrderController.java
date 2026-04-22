@@ -1,11 +1,14 @@
 package com.example.demo.controller;
 
 import com.example.demo.dto.CreateOrderRequest;
+import com.example.demo.dto.DispatchRespondRequest;
 import com.example.demo.dto.OrderDetailResponse;
 import com.example.demo.dto.OrderResponse;
+import com.example.demo.entity.BlindProfile;
 import com.example.demo.entity.OrderStatus;
 import com.example.demo.entity.RunOrder;
 import com.example.demo.entity.User;
+import com.example.demo.repository.BlindProfileRepository;
 import com.example.demo.repository.RunOrderRepository;
 import com.example.demo.repository.UserRepository;
 import com.example.demo.service.OrderService;
@@ -44,14 +47,17 @@ public class OrderController {
     private final RunOrderRepository runOrderRepository;
     private final VolunteerLocationService volunteerLocationService;
     private final UserRepository userRepository;
+    private final BlindProfileRepository blindProfileRepository;
 
     public OrderController(OrderService orderService, RunOrderRepository runOrderRepository,
                            VolunteerLocationService volunteerLocationService,
-                           UserRepository userRepository) {
+                           UserRepository userRepository,
+                           BlindProfileRepository blindProfileRepository) {
         this.orderService = orderService;
         this.runOrderRepository = runOrderRepository;
         this.volunteerLocationService = volunteerLocationService;
         this.userRepository = userRepository;
+        this.blindProfileRepository = blindProfileRepository;
     }
 
     @PostMapping
@@ -73,6 +79,18 @@ public class OrderController {
         Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
         orderService.rejectOrder(id, userId);
         return ResponseEntity.ok(Map.of("success", true));
+    }
+
+    /**
+     * 志愿者响应派单（接单或跳过）—— 串行派单专用
+     */
+    @PostMapping("/{id}/respond")
+    public ResponseEntity<?> respondToDispatch(
+            @PathVariable Long id,
+            @Valid @RequestBody DispatchRespondRequest request) {
+        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        orderService.respondToDispatchOrder(id, userId, request.action());
+        return ResponseEntity.ok(Map.of("success", true, "orderId", id));
     }
 
     @PostMapping("/{id}/finish")
@@ -180,6 +198,9 @@ public class OrderController {
     /** 将 RunOrder 实体转换为 OrderDetailResponse DTO */
     private OrderDetailResponse toDetailResponse(RunOrder order) {
         String volunteerPhone = order.getVolunteer() != null ? PhoneMaskUtils.mask(order.getVolunteer().getPhone()) : null;
+        // 从盲人档案获取冗余字段
+        BlindProfile blindProfile = order.getBlindUser() != null
+                ? blindProfileRepository.findByUserId(order.getBlindUser().getId()).orElse(null) : null;
         return new OrderDetailResponse(
                 order.getId(),
                 order.getStatus(),
@@ -188,7 +209,16 @@ public class OrderController {
                 order.getPlannedEndTime(),
                 volunteerPhone,
                 order.getAcceptedAt(),
-                order.getCreatedAt()
+                order.getCreatedAt(),
+                order.getExpectedDurationMinutes(),
+                order.getPacePreference(),
+                order.getRoutePreference(),
+                order.getRouteNotes(),
+                order.getHasGuideDogThisRun(),
+                order.getSpecialNotes(),
+                blindProfile != null ? blindProfile.getVisionLevel() : null,
+                blindProfile != null ? blindProfile.getTetherPreference() : null,
+                blindProfile != null ? blindProfile.getChatPreference() : null
         );
     }
 }

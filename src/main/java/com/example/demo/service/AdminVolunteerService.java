@@ -29,13 +29,16 @@ public class AdminVolunteerService {
     private final VolunteerProfileRepository volunteerProfileRepository;
     private final TrainingProgressRepository trainingProgressRepository;
     private final NotificationService notificationService;
+    private final FileStorageService fileStorageService;
 
     public AdminVolunteerService(VolunteerProfileRepository volunteerProfileRepository,
                                   TrainingProgressRepository trainingProgressRepository,
-                                  NotificationService notificationService) {
+                                  NotificationService notificationService,
+                                  FileStorageService fileStorageService) {
         this.volunteerProfileRepository = volunteerProfileRepository;
         this.trainingProgressRepository = trainingProgressRepository;
         this.notificationService = notificationService;
+        this.fileStorageService = fileStorageService;
     }
 
     /**
@@ -123,9 +126,9 @@ public class AdminVolunteerService {
                 PhoneMaskUtils.mask(profile.getPhone()),
                 maskIdCard(profile.getIdCardNumber()),
                 profile.getIdCardName(),
-                profile.getIdCardFrontUrl(),
-                profile.getIdCardBackUrl(),
-                profile.getFacePhotoUrl(),
+                fileStorageService.getUrl(profile.getIdCardFrontUrl()),
+                fileStorageService.getUrl(profile.getIdCardBackUrl()),
+                fileStorageService.getUrl(profile.getFacePhotoUrl()),
                 profile.getRegistrationStep(),
                 profile.getIdVerifyStatus(),
                 profile.getFaceVerifyStatus(),

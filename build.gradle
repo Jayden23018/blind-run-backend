@@ -35,6 +35,8 @@ dependencies {
 	implementation 'com.aliyun:dysmsapi20170525:2.0.24'
 	// 阿里云金融级实人认证 SDK
 	implementation 'com.aliyun:cloudauth20190307:2.1.1'
+	// 阿里云 OSS SDK
+	implementation 'com.aliyun.oss:aliyun-sdk-oss:3.18.1'
 
 	compileOnly 'org.projectlombok:lombok'
 	runtimeOnly 'com.mysql:mysql-connector-j'

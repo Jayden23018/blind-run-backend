@@ -296,6 +296,7 @@ public class TrainingService {
                 var profile = profileOpt.get();
                 if (profile.getRegistrationStep() != RegistrationStep.STEP_4_COMPLETED) {
                     profile.setRegistrationStep(RegistrationStep.STEP_4_COMPLETED);
+                    profile.setVerified(true);
 
                     // 统计总培训时长
                     List<TrainingProgress> allProgress = progressRepository.findByVolunteerIdOrderByCourseId(userId);

@@ -4,27 +4,35 @@ import com.example.demo.dto.ReviewResponse;
 import com.example.demo.entity.OrderReview;
 import com.example.demo.entity.OrderStatus;
 import com.example.demo.entity.RunOrder;
+import com.example.demo.entity.VolunteerProfile;
 import com.example.demo.exception.OrderNotFoundException;
 import com.example.demo.exception.OrderPermissionException;
 import com.example.demo.exception.OrderStatusException;
 import com.example.demo.exception.DuplicateOrderException;
 import com.example.demo.repository.OrderReviewRepository;
 import com.example.demo.repository.RunOrderRepository;
+import com.example.demo.repository.VolunteerProfileRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 评价业务逻辑服务
  */
+@Slf4j
 @Service
 public class ReviewService {
 
     private final OrderReviewRepository orderReviewRepository;
     private final RunOrderRepository runOrderRepository;
+    private final VolunteerProfileRepository volunteerProfileRepository;
 
-    public ReviewService(OrderReviewRepository orderReviewRepository, RunOrderRepository runOrderRepository) {
+    public ReviewService(OrderReviewRepository orderReviewRepository,
+                         RunOrderRepository runOrderRepository,
+                         VolunteerProfileRepository volunteerProfileRepository) {
         this.orderReviewRepository = orderReviewRepository;
         this.runOrderRepository = runOrderRepository;
+        this.volunteerProfileRepository = volunteerProfileRepository;
     }
 
     /**
@@ -63,6 +71,25 @@ public class ReviewService {
         review.setComment(comment);
 
         orderReviewRepository.save(review);
+
+        // 更新志愿者的聚合评分
+        updateVolunteerRating(order.getVolunteer().getId(), rating);
+    }
+
+    /**
+     * 评价保存后，更新志愿者档案的平均评分和评价总数
+     */
+    private void updateVolunteerRating(Long volunteerId, int rating) {
+        volunteerProfileRepository.findByUserId(volunteerId).ifPresent(profile -> {
+            int total = profile.getTotalRatings() != null ? profile.getTotalRatings() : 0;
+            double avg = profile.getAvgRating() != null ? profile.getAvgRating() : 0.0;
+            int newTotal = total + 1;
+            double newAvg = ((avg * total) + rating) / newTotal;
+            profile.setTotalRatings(newTotal);
+            profile.setAvgRating(Math.round(newAvg * 10.0) / 10.0);
+            volunteerProfileRepository.save(profile);
+            log.info("志愿者 {} 评分更新: avgRating={}, totalRatings={}", volunteerId, newAvg, newTotal);
+        });
     }
 
     /**

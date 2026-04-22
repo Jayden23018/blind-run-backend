@@ -10,6 +10,7 @@ import com.example.demo.exception.DuplicateOrderException;
 import com.example.demo.exception.OrderNotFoundException;
 import com.example.demo.exception.OrderPermissionException;
 import com.example.demo.exception.OrderStatusException;
+import com.example.demo.repository.BlindProfileRepository;
 import com.example.demo.repository.RunOrderRepository;
 import com.example.demo.repository.UserRepository;
 import com.example.demo.repository.VolunteerProfileRepository;
@@ -43,6 +44,9 @@ class OrderServiceTest {
     private ApplicationEventPublisher eventPublisher;
 
     @Mock
+    private BlindProfileRepository blindProfileRepository;
+
+    @Mock
     private VolunteerProfileRepository volunteerProfileRepository;
 
     @Mock
@@ -57,13 +61,16 @@ class OrderServiceTest {
     @Mock
     private ProximityService proximityService;
 
+    @Mock
+    private DispatchService dispatchService;
+
     private OrderService orderService;
 
     @BeforeEach
     void setUp() {
         orderService = new OrderService(runOrderRepository, userRepository, eventPublisher,
-                volunteerProfileRepository, statusLogService, emergencyContactService,
-                notificationService, proximityService);
+                blindProfileRepository, volunteerProfileRepository, statusLogService,
+                emergencyContactService, notificationService, proximityService, dispatchService);
     }
 
     /** 正常创建订单 */

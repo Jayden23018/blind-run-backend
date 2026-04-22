@@ -66,6 +66,32 @@ public class RunOrder {
     @Column(nullable = false)
     private LocalDateTime plannedEndTime;
 
+    /** 预计跑步时长（分钟） */
+    @Column(name = "expected_duration_minutes")
+    private Integer expectedDurationMinutes;
+
+    /** 本次配速偏好（覆盖档案默认值） */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "pace_preference", length = 20)
+    private PacePreference pacePreference;
+
+    /** 路线偏好 */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "route_preference", length = 20)
+    private RoutePreference routePreference = RoutePreference.NO_PREFERENCE;
+
+    /** 路线备注 */
+    @Column(name = "route_notes", length = 200)
+    private String routeNotes;
+
+    /** 本次是否携带导盲犬（null=跟随档案默认值） */
+    @Column(name = "has_guide_dog_this_run")
+    private Boolean hasGuideDogThisRun;
+
+    /** 本次订单一次性备注 */
+    @Column(name = "special_notes", length = 200)
+    private String specialNotes;
+
     /**
      * 订单状态 —— 用枚举类型存储
      * @Enumerated(EnumType.STRING) 表示在数据库中存储枚举的名称字符串（如 "PENDING_MATCH"），
@@ -120,6 +146,20 @@ public class RunOrder {
     /** 是否已发送超时挂起通知（超过结束时间1小时后提醒志愿者） */
     @Column(name = "overdue_notified")
     private Boolean overdueNotified = false;
+
+    // ========== 串行派单状态字段 ==========
+
+    /** 派单轮次（0=未开始, 1=5km, 2=10km, 3=20km） */
+    @Column(name = "dispatch_round")
+    private Integer dispatchRound = 0;
+
+    /** 当前正在等待回应的志愿者 ID（镜像 Redis dispatch_current，用于崩溃恢复） */
+    @Column(name = "dispatch_current_volunteer_id")
+    private Long dispatchCurrentVolunteerId;
+
+    /** 派单流程开始时间，用于计算总超时 */
+    @Column(name = "dispatch_started_at")
+    private LocalDateTime dispatchStartedAt;
 
     /**
      * JPA 生命周期回调 —— 在插入数据库之前自动执行
