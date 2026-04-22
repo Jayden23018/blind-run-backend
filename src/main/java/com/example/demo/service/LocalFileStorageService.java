@@ -2,6 +2,7 @@ package com.example.demo.service;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -17,6 +18,7 @@ import java.util.UUID;
  */
 @Slf4j
 @Service
+@ConditionalOnProperty(name = "app.storage.type", havingValue = "local", matchIfMissing = true)
 public class LocalFileStorageService implements FileStorageService {
 
     /** 允许上传的文件扩展名白名单 */
@@ -53,6 +55,11 @@ public class LocalFileStorageService implements FileStorageService {
         } catch (IOException e) {
             throw new RuntimeException("文件保存失败", e);
         }
+    }
+
+    @Override
+    public String getUrl(String key) {
+        return key;
     }
 
     /**

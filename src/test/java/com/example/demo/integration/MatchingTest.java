@@ -9,17 +9,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * 匹配模块集成测试（TC-MATCH-01 ~ 06）
  *
- * 测试异步匹配逻辑：
- * 盲人创建订单后，MatchingService 通过 @Async @EventListener 在后台执行距离匹配，
- * 将附近在线志愿者与订单关联。
- *
- * 使用 waitForOrderStatus 轮询等待异步匹配完成后的状态变更。
+ * 测试异步串行派单逻辑：
+ * 盲人创建订单后，DispatchService 通过 @Async @EventListener 在后台执行距离匹配，
+ * 将订单按距离排序后串行派单给最近的在线志愿者，每次仅派单给 1 名志愿者。
+ * 订单在志愿者接单前保持 PENDING_MATCH 状态。
  */
 class MatchingTest extends BaseIntegrationTest {
 
     // ==================== 距离匹配 ====================
 
-    /** TC-MATCH-01：附近志愿者成功匹配 */
+    /** TC-MATCH-01：附近志愿者成功匹配并接单 */
     @Test
     @DisplayName("TC-MATCH-01: 附近志愿者成功匹配")
     void tc01_nearbyVolunteerMatched() throws InterruptedException {
@@ -34,8 +33,15 @@ class MatchingTest extends BaseIntegrationTest {
         Long orderId = testHelper.createOrder(blindToken, 39.9042, 116.4674, "朝阳公园南门",
                 TestHelper.defaultStartTime(), TestHelper.defaultEndTime());
 
-        // 4. 等待异步匹配完成，订单应变为 PENDING_ACCEPT
-        testHelper.waitForOrderStatus(blindToken, orderId, OrderStatus.PENDING_ACCEPT, 5);
+        // 4. 订单初始状态为 PENDING_MATCH
+        assertThat(testHelper.getOrderStatus(blindToken, orderId)).isEqualTo(OrderStatus.PENDING_MATCH);
+
+        // 5. 等待异步派单后，志愿者通过 /respond 接单
+        Thread.sleep(500); // 等待异步 DispatchService 启动
+        testHelper.respondAccept(volToken, orderId);
+
+        // 6. 接单后状态应变为 IN_PROGRESS
+        assertThat(testHelper.getOrderStatus(blindToken, orderId)).isEqualTo(OrderStatus.IN_PROGRESS);
 
         System.out.println("✅ TC-MATCH-01 passed — 附近志愿者成功匹配");
     }
@@ -65,9 +71,9 @@ class MatchingTest extends BaseIntegrationTest {
         System.out.println("✅ TC-MATCH-02 passed — 远距离志愿者不匹配");
     }
 
-    /** TC-MATCH-03：最大候选人数限制 */
+    /** TC-MATCH-03：串行派单仅派给 1 名最近志愿者 */
     @Test
-    @DisplayName("TC-MATCH-03: 最大候选人数限制（5 名志愿者，仅推送前 3 名）")
+    @DisplayName("TC-MATCH-03: 串行派单仅派给最近志愿者（5 名志愿者在线）")
     void tc03_maxCandidatesLimit() throws InterruptedException {
         // 1. 注册盲人
         String blindToken = testHelper.registerAndLoginWithRole("13800103001", "BLIND");
@@ -90,11 +96,17 @@ class MatchingTest extends BaseIntegrationTest {
         Long orderId = testHelper.createOrder(blindToken, 39.9042, 116.4674, "朝阳公园南门",
                 TestHelper.defaultStartTime(), TestHelper.defaultEndTime());
 
-        // 4. 等待匹配完成，订单应变为 PENDING_ACCEPT
-        // （max-candidates=3，只有最近的 3 名志愿者收到推送，但匹配仍然成功）
-        testHelper.waitForOrderStatus(blindToken, orderId, OrderStatus.PENDING_ACCEPT, 5);
+        // 4. 等待异步派单，订单保持 PENDING_MATCH
+        Thread.sleep(500); // 等待异步 DispatchService 启动
+        assertThat(testHelper.getOrderStatus(blindToken, orderId)).isEqualTo(OrderStatus.PENDING_MATCH);
 
-        System.out.println("✅ TC-MATCH-03 passed — 最大候选人数限制");
+        // 5. 最近的志愿者（vol1）可以接单
+        testHelper.respondAccept(vol1, orderId);
+
+        // 6. 接单后状态变为 IN_PROGRESS
+        assertThat(testHelper.getOrderStatus(blindToken, orderId)).isEqualTo(OrderStatus.IN_PROGRESS);
+
+        System.out.println("✅ TC-MATCH-03 passed — 串行派单仅派给最近志愿者");
     }
 
     /** TC-MATCH-04：无在线志愿者，订单保持 PENDING_MATCH */
@@ -143,7 +155,7 @@ class MatchingTest extends BaseIntegrationTest {
         System.out.println("✅ TC-MATCH-05 passed — 离线志愿者被忽略");
     }
 
-    /** TC-MATCH-06：多名志愿者按距离排序匹配 */
+    /** TC-MATCH-06：多名志愿者按距离排序，最近的先被派单 */
     @Test
     @DisplayName("TC-MATCH-06: 多名志愿者按距离排序匹配")
     void tc06_multipleVolunteersSortedByDistance() throws InterruptedException {
@@ -164,8 +176,15 @@ class MatchingTest extends BaseIntegrationTest {
         Long orderId = testHelper.createOrder(blindToken, 39.9042, 116.4674, "朝阳公园南门",
                 TestHelper.defaultStartTime(), TestHelper.defaultEndTime());
 
-        // 4. 3 名志愿者都在范围内，订单应变为 PENDING_ACCEPT
-        testHelper.waitForOrderStatus(blindToken, orderId, OrderStatus.PENDING_ACCEPT, 5);
+        // 4. 等待异步派单，订单保持 PENDING_MATCH
+        Thread.sleep(500); // 等待异步 DispatchService 启动
+        assertThat(testHelper.getOrderStatus(blindToken, orderId)).isEqualTo(OrderStatus.PENDING_MATCH);
+
+        // 5. 最近的志愿者接单成功
+        testHelper.respondAccept(volNear, orderId);
+
+        // 6. 接单后状态变为 IN_PROGRESS
+        assertThat(testHelper.getOrderStatus(blindToken, orderId)).isEqualTo(OrderStatus.IN_PROGRESS);
 
         System.out.println("✅ TC-MATCH-06 passed — 多名志愿者按距离排序匹配");
     }

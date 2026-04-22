@@ -1,5 +1,6 @@
 package com.example.demo.dto;
 
+import com.example.demo.entity.PacePreference;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -19,4 +20,10 @@ public class VolunteerProfileUpdateRequest {
 
     @Valid
     private List<VolunteerAvailableTimeSlot> availableTimeSlots;
+
+    /** 是否接受携带导盲犬的订单 */
+    private Boolean acceptsGuideDog;
+
+    /** 志愿者可适应的配速范围 */
+    private PacePreference paceRange;
 }

@@ -74,6 +74,11 @@ public class BlindService {
         profile.setName(request.getName());
         profile.setRunningPace(request.getRunningPace());
         profile.setSpecialNeeds(request.getSpecialNeeds());
+        if (request.getVisionLevel() != null) profile.setVisionLevel(request.getVisionLevel());
+        if (request.getHasGuideDog() != null) profile.setHasGuideDog(request.getHasGuideDog());
+        if (request.getTetherPreference() != null) profile.setTetherPreference(request.getTetherPreference());
+        if (request.getChatPreference() != null) profile.setChatPreference(request.getChatPreference());
+        if (request.getDefaultPace() != null) profile.setDefaultPace(request.getDefaultPace());
 
         blindProfileRepository.save(profile);
 
@@ -126,7 +131,12 @@ public class BlindService {
                 profile.getName(),
                 profile.getRunningPace(),
                 profile.getSpecialNeeds(),
-                profile.getVerifyStatus()
+                profile.getVerifyStatus(),
+                profile.getVisionLevel(),
+                profile.getHasGuideDog(),
+                profile.getTetherPreference(),
+                profile.getChatPreference(),
+                profile.getDefaultPace()
         );
     }
 }

@@ -152,22 +152,21 @@ class OrderValidationTest extends BaseIntegrationTest {
 
     // ==================== TC-VALID-07 ====================
 
-    /** TC-VALID-07：PENDING_ACCEPT 状态也触发重复订单检查 → 409 */
+    /** TC-VALID-07：PENDING_MATCH 状态也触发重复订单检查 → 409 */
     @Test
-    @DisplayName("TC-VALID-07: PENDING_ACCEPT状态触发重复下单检查返回409")
-    void tcValid07_pendingAcceptTriggersDuplicateCheck_returns409() throws Exception {
+    @DisplayName("TC-VALID-07: PENDING_MATCH状态触发重复下单检查返回409")
+    void tcValid07_pendingMatchTriggersDuplicateCheck_returns409() throws Exception {
         String blindToken = testHelper.registerAndLoginWithRole("13800080071", "BLIND");
         String volToken = testHelper.registerAndLoginWithRole("13800080072", "VOLUNTEER");
         testHelper.updateVolunteerLocation(volToken, 39.9242, 116.4677, true);
 
-        // 创建第一个订单，等待进入 PENDING_ACCEPT
+        // 创建第一个订单，等待异步派单
         Long orderId = testHelper.createOrder(blindToken, 39.9042, 116.4674, "朝阳公园南门",
                 TestHelper.defaultStartTime(), TestHelper.defaultEndTime());
 
-        testHelper.waitForOrderStatus(blindToken, orderId,
-                com.example.demo.entity.OrderStatus.PENDING_ACCEPT, 5);
+        Thread.sleep(500); // 等待异步 DispatchService 启动
 
-        // 此时订单处于 PENDING_ACCEPT，盲人尝试创建第二个订单 → 应被拒绝
+        // 此时订单处于 PENDING_MATCH（串行派单模式），盲人尝试创建第二个订单 → 应被拒绝
         ResponseEntity<String> response = testHelper.createOrderRaw(blindToken, """
                 {"startLatitude":39.91,"startLongitude":116.47,"startAddress":"东直门",
                  "plannedStartTime":"2099-07-01T18:00:00","plannedEndTime":"2099-07-01T19:00:00"}
@@ -179,6 +178,6 @@ class OrderValidationTest extends BaseIntegrationTest {
         assertThat(json.get("code").asInt()).isEqualTo(409);
         assertThat(json.get("message").asText()).contains("进行中的订单");
 
-        System.out.println("✅ TC-VALID-07 passed — PENDING_ACCEPT状态触发重复下单检查返回409");
+        System.out.println("✅ TC-VALID-07 passed — PENDING_MATCH状态触发重复下单检查返回409");
     }
 }

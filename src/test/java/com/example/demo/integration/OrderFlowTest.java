@@ -18,7 +18,7 @@ class OrderFlowTest extends BaseIntegrationTest {
 
     // ==================== 完整流程 ====================
 
-    /** TC-ORDER-01: 完整成功流程 — 志愿者上报位置 → 盲人创建订单 → 等待PENDING_ACCEPT → 接单 → 完成 */
+    /** TC-ORDER-01: 完整成功流程 — 志愿者上报位置 → 盲人创建订单 → 派单 → 接单 → 完成 */
     @Test
     @DisplayName("TC-ORDER-01: 完整成功流程")
     void tc01_completeOrderFlow() throws Exception {
@@ -37,12 +37,11 @@ class OrderFlowTest extends BaseIntegrationTest {
         OrderStatus status = testHelper.getOrderStatus(blindToken, orderId);
         assertThat(status).isEqualTo(OrderStatus.PENDING_MATCH);
 
-        // 等待系统匹配 → PENDING_ACCEPT
-        testHelper.waitForOrderStatus(blindToken, orderId, OrderStatus.PENDING_ACCEPT, 5);
-        assertThat(testHelper.getOrderStatus(blindToken, orderId)).isEqualTo(OrderStatus.PENDING_ACCEPT);
+        // 等待异步派单 → 志愿者通过 /respond 接单
+        Thread.sleep(500); // 等待异步 DispatchService 启动
+        testHelper.respondAccept(volToken, orderId);
 
-        // 志愿者接单 → IN_PROGRESS
-        testHelper.acceptOrder(volToken, orderId);
+        // 接单后状态应为 IN_PROGRESS
         assertThat(testHelper.getOrderStatus(blindToken, orderId)).isEqualTo(OrderStatus.IN_PROGRESS);
 
         // 志愿者完成服务 → COMPLETED
@@ -174,8 +173,8 @@ class OrderFlowTest extends BaseIntegrationTest {
         Long orderId = testHelper.createOrder(blindToken, 39.9042, 116.4674, "朝阳公园南门",
                 TestHelper.defaultStartTime(), TestHelper.defaultEndTime());
 
-        // 等待匹配完成 → PENDING_ACCEPT
-        testHelper.waitForOrderStatus(blindToken, orderId, OrderStatus.PENDING_ACCEPT, 5);
+        // 等待异步派单
+        Thread.sleep(500); // 等待异步 DispatchService 启动
 
         // 第二个志愿者上线并查询可接订单
         testHelper.updateVolunteerLocation(volToken2, 39.9242, 116.4677, true);
@@ -186,7 +185,7 @@ class OrderFlowTest extends BaseIntegrationTest {
         JsonNode orders = testHelper.extractJson(response.getBody());
         assertThat(orders.isArray()).isTrue();
 
-        // 可接订单列表应包含至少一个 PENDING_ACCEPT 的订单
+        // 可接订单列表应包含至少一个 PENDING_MATCH 的订单（串行派单模式下，志愿者未接单前保持 PENDING_MATCH）
         boolean found = false;
         for (JsonNode order : orders) {
             if (order.get("orderId").asLong() == orderId) {

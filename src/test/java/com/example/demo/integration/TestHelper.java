@@ -213,11 +213,24 @@ public class TestHelper {
         return extractJson(response.getBody()).get("id").asLong();
     }
 
-    /** 志愿者接单 */
+    /** 志愿者接单（旧接口，向后兼容） */
     public void acceptOrder(String token, Long orderId) {
         ResponseEntity<String> response = rest.postForEntity(
                 "/api/orders/" + orderId + "/accept", jsonEntity(token, null), String.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    /** 志愿者响应派单（新接口：ACCEPT 或 DECLINE） */
+    public void respondToOrder(String token, Long orderId, String action) {
+        ResponseEntity<String> response = rest.postForEntity(
+                "/api/orders/" + orderId + "/respond",
+                jsonEntity(token, "{\"action\":\"" + action + "\"}"), String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    /** 志愿者通过派单接单 */
+    public void respondAccept(String token, Long orderId) {
+        respondToOrder(token, orderId, "ACCEPT");
     }
 
     /** 接单，返回原始响应 */
@@ -331,7 +344,7 @@ public class TestHelper {
 
     // ==================== 完整流程辅助 ====================
 
-    /** 完成一个完整的订单流程（创建→匹配→接单→完成），返回 FlowResult */
+    /** 完成一个完整的订单流程（创建→派单→接单→完成），返回 FlowResult */
     public FlowResult completeOrderFlow(String blindPhone, String volPhone) throws Exception {
         String blindToken = registerAndLoginWithRole(blindPhone, "BLIND");
         String volToken = registerAndLoginWithRole(volPhone, "VOLUNTEER");
@@ -341,8 +354,9 @@ public class TestHelper {
         Long orderId = createOrder(blindToken, 39.9042, 116.4674, "朝阳公园南门",
                 defaultStartTime(), defaultEndTime());
 
-        waitForOrderStatus(blindToken, orderId, OrderStatus.PENDING_ACCEPT, 5);
-        acceptOrder(volToken, orderId);
+        // 等待异步派单完成后，志愿者通过 /respond 接单
+        Thread.sleep(500); // 等待异步 DispatchService 启动
+        respondAccept(volToken, orderId);
         finishOrder(volToken, orderId);
 
         return new FlowResult(blindToken, volToken, orderId);
@@ -358,8 +372,9 @@ public class TestHelper {
         Long orderId = createOrder(blindToken, 39.9042, 116.4674, "朝阳公园南门",
                 defaultStartTime(), defaultEndTime());
 
-        waitForOrderStatus(blindToken, orderId, OrderStatus.PENDING_ACCEPT, 5);
-        acceptOrder(volToken, orderId);
+        // 等待异步派单完成后，志愿者通过 /respond 接单
+        Thread.sleep(500); // 等待异步 DispatchService 启动
+        respondAccept(volToken, orderId);
 
         return new FlowResult(blindToken, volToken, orderId);
     }

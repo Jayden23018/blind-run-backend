@@ -43,20 +43,23 @@ class OrderCancelTest extends BaseIntegrationTest {
         System.out.println("✅ TC-CANCEL-01 passed — 盲人取消PENDING_MATCH订单");
     }
 
-    /** TC-CANCEL-02: 盲人取消 PENDING_ACCEPT 订单（匹配后取消） */
+    /** TC-CANCEL-02: 盲人取消 PENDING_MATCH 订单（已派单给志愿者，但志愿者尚未接单） */
     @Test
-    @DisplayName("TC-CANCEL-02: 盲人取消PENDING_ACCEPT订单")
-    void tc02_blindCancelPendingAccept() throws Exception {
+    @DisplayName("TC-CANCEL-02: 盲人取消已派单但未接单的订单")
+    void tc02_blindCancelPendingMatch() throws Exception {
         String blindToken = testHelper.registerAndLoginWithRole("13800060011", "BLIND");
         String volToken = testHelper.registerAndLoginWithRole("13800060012", "VOLUNTEER");
 
         // 志愿者上线
         testHelper.updateVolunteerLocation(volToken, 39.9242, 116.4677, true);
 
-        // 创建订单并等待匹配
+        // 创建订单，等待异步派单
         Long orderId = testHelper.createOrder(blindToken, 39.9042, 116.4674, "朝阳公园南门",
                 TestHelper.defaultStartTime(), TestHelper.defaultEndTime());
-        testHelper.waitForOrderStatus(blindToken, orderId, OrderStatus.PENDING_ACCEPT, 5);
+        Thread.sleep(500); // 等待异步 DispatchService 启动
+
+        // 验证状态仍为 PENDING_MATCH（串行派单模式，志愿者未接单前不改变状态）
+        assertThat(testHelper.getOrderStatus(blindToken, orderId)).isEqualTo(OrderStatus.PENDING_MATCH);
 
         // 盲人取消
         ResponseEntity<String> response = testHelper.cancelOrder(blindToken, orderId);
@@ -67,7 +70,7 @@ class OrderCancelTest extends BaseIntegrationTest {
         // 验证状态变为 CANCELLED
         assertThat(testHelper.getOrderStatus(blindToken, orderId)).isEqualTo(OrderStatus.CANCELLED);
 
-        System.out.println("✅ TC-CANCEL-02 passed — 盲人取消PENDING_ACCEPT订单");
+        System.out.println("✅ TC-CANCEL-02 passed — 盲人取消已派单但未接单的订单");
     }
 
     /** TC-CANCEL-03: 盲人取消 IN_PROGRESS 订单 → 403 服务进行中 */
@@ -92,29 +95,26 @@ class OrderCancelTest extends BaseIntegrationTest {
     // ==================== 志愿者取消 ====================
 
     /**
-     * TC-CANCEL-04: 志愿者取消 PENDING_ACCEPT 订单 → 403
+     * TC-CANCEL-04: 志愿者取消 PENDING_MATCH（已派单但未接单）订单 → 403
      *
-     * 【已知偏差说明】
-     * 规格文档预期志愿者可以取消 PENDING_ACCEPT 状态的订单（返回 200），
-     * 但实际实现中，PENDING_ACCEPT 阶段志愿者尚未被正式分配到订单
-     * （order.getVolunteer() 为 null 或不匹配该志愿者 userId），
+     * 串行派单模式下，订单在志愿者接单前保持 PENDING_MATCH，
+     * 志愿者尚未被正式分配到订单（order.getVolunteer() 为 null 或不匹配），
      * 因此 isBlind=false 且 isVolunteer=false，触发 OrderPermissionException，
      * 返回 403 "您无权操作此订单"。
-     * 这是因为匹配阶段仅建立了推荐关系，志愿者尚未通过 acceptOrder 确认接单。
      */
     @Test
-    @DisplayName("TC-CANCEL-04: 志愿者取消PENDING_ACCEPT订单 → 403")
-    void tc04_volunteerCancelPendingAccept() throws Exception {
+    @DisplayName("TC-CANCEL-04: 志愿者取消未接单的已派单订单 → 403")
+    void tc04_volunteerCancelPendingMatch() throws Exception {
         String blindToken = testHelper.registerAndLoginWithRole("13800060031", "BLIND");
         String volToken = testHelper.registerAndLoginWithRole("13800060032", "VOLUNTEER");
 
         // 志愿者上线
         testHelper.updateVolunteerLocation(volToken, 39.9242, 116.4677, true);
 
-        // 创建订单并等待匹配
+        // 创建订单，等待异步派单
         Long orderId = testHelper.createOrder(blindToken, 39.9042, 116.4674, "朝阳公园南门",
                 TestHelper.defaultStartTime(), TestHelper.defaultEndTime());
-        testHelper.waitForOrderStatus(blindToken, orderId, OrderStatus.PENDING_ACCEPT, 5);
+        Thread.sleep(500); // 等待异步 DispatchService 启动
 
         // 志愿者尝试取消 → 由于尚未 accept，getVolunteer() 不匹配，返回 403
         ResponseEntity<String> response = testHelper.cancelOrder(volToken, orderId);
@@ -125,7 +125,7 @@ class OrderCancelTest extends BaseIntegrationTest {
         assertThat(json.get("code").asInt()).isEqualTo(403);
         assertThat(json.get("message").asText()).contains("您无权操作此订单");
 
-        System.out.println("✅ TC-CANCEL-04 passed — 志愿者取消PENDING_ACCEPT订单 → 403");
+        System.out.println("✅ TC-CANCEL-04 passed — 志愿者取消未接单的已派单订单 → 403");
     }
 
     /** TC-CANCEL-05: 志愿者取消 IN_PROGRESS 订单 → 200 */

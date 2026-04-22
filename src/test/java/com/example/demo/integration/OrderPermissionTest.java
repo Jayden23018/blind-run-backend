@@ -46,9 +46,8 @@ class OrderPermissionTest extends BaseIntegrationTest {
         Long orderId = testHelper.createOrder(blindToken, 39.9042, 116.4674, "朝阳公园南门",
                 TestHelper.defaultStartTime(), TestHelper.defaultEndTime());
 
-        testHelper.waitForOrderStatus(blindToken, orderId,
-                com.example.demo.entity.OrderStatus.PENDING_ACCEPT, 5);
-        testHelper.acceptOrder(volToken, orderId);
+        Thread.sleep(500); // 等待异步派单
+        testHelper.respondAccept(volToken, orderId);
 
         // 用户 C（陌生人）尝试查看 A+B 的订单
         String strangerToken = testHelper.registerAndLogin("13800070003");
@@ -77,9 +76,8 @@ class OrderPermissionTest extends BaseIntegrationTest {
         Long orderId = testHelper.createOrder(blindToken, 39.9042, 116.4674, "朝阳公园南门",
                 TestHelper.defaultStartTime(), TestHelper.defaultEndTime());
 
-        testHelper.waitForOrderStatus(blindToken, orderId,
-                com.example.demo.entity.OrderStatus.PENDING_ACCEPT, 5);
-        testHelper.acceptOrder(volToken, orderId);
+        Thread.sleep(500); // 等待异步派单
+        testHelper.respondAccept(volToken, orderId);
 
         // 用户 C（陌生人）尝试结束订单
         String strangerToken = testHelper.registerAndLogin("13800070013");
@@ -110,8 +108,7 @@ class OrderPermissionTest extends BaseIntegrationTest {
         Long orderId = testHelper.createOrder(blindToken, 39.9042, 116.4674, "朝阳公园南门",
                 TestHelper.defaultStartTime(), TestHelper.defaultEndTime());
 
-        testHelper.waitForOrderStatus(blindToken, orderId,
-                com.example.demo.entity.OrderStatus.PENDING_ACCEPT, 5);
+        Thread.sleep(500); // 等待异步派单
 
         // 另一个盲人用户尝试接单
         String blindToken2 = testHelper.registerAndLoginWithRole("13800070023", "BLIND");
@@ -140,8 +137,7 @@ class OrderPermissionTest extends BaseIntegrationTest {
         Long orderId = testHelper.createOrder(blindToken, 39.9042, 116.4674, "朝阳公园南门",
                 TestHelper.defaultStartTime(), TestHelper.defaultEndTime());
 
-        testHelper.waitForOrderStatus(blindToken, orderId,
-                com.example.demo.entity.OrderStatus.PENDING_ACCEPT, 5);
+        Thread.sleep(500); // 等待异步派单
 
         // 未认证志愿者尝试接单
         String unverifiedVolToken = testHelper.registerVolunteerWithoutVerification("13800070033");
@@ -170,11 +166,10 @@ class OrderPermissionTest extends BaseIntegrationTest {
         Long orderId = testHelper.createOrder(blindToken, 39.9042, 116.4674, "朝阳公园南门",
                 TestHelper.defaultStartTime(), TestHelper.defaultEndTime());
 
-        testHelper.waitForOrderStatus(blindToken, orderId,
-                com.example.demo.entity.OrderStatus.PENDING_ACCEPT, 5);
+        Thread.sleep(500); // 等待异步派单
 
         // 第一次接单成功
-        testHelper.acceptOrder(volToken, orderId);
+        testHelper.respondAccept(volToken, orderId);
 
         // 第二次接单应失败
         ResponseEntity<String> response = testHelper.acceptOrderRaw(volToken, orderId);
@@ -201,9 +196,8 @@ class OrderPermissionTest extends BaseIntegrationTest {
         Long firstOrderId = testHelper.createOrder(blindToken, 39.9042, 116.4674, "朝阳公园南门",
                 TestHelper.defaultStartTime(), TestHelper.defaultEndTime());
 
-        // 等待第一个订单匹配（进入 PENDING_MATCH 或更后的状态）
-        testHelper.waitForOrderStatus(blindToken, firstOrderId,
-                com.example.demo.entity.OrderStatus.PENDING_ACCEPT, 5);
+        // 等待第一个订单派单（进入 PENDING_MATCH，串行派单模式下志愿者未接单前保持此状态）
+        Thread.sleep(500); // 等待异步 DispatchService 启动
 
         // 盲人尝试创建第二个订单 → 应被拒绝
         ResponseEntity<String> response = testHelper.createOrderRaw(blindToken, """

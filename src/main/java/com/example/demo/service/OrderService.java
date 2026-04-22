@@ -8,6 +8,7 @@ import com.example.demo.exception.DuplicateOrderException;
 import com.example.demo.exception.OrderNotFoundException;
 import com.example.demo.exception.OrderPermissionException;
 import com.example.demo.exception.OrderStatusException;
+import com.example.demo.repository.BlindProfileRepository;
 import com.example.demo.repository.RunOrderRepository;
 import com.example.demo.repository.UserRepository;
 import com.example.demo.repository.VolunteerProfileRepository;
@@ -37,11 +38,13 @@ public class OrderService {
     private final RunOrderRepository runOrderRepository;
     private final UserRepository userRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final BlindProfileRepository blindProfileRepository;
     private final VolunteerProfileRepository volunteerProfileRepository;
     private final OrderStatusLogService statusLogService;
     private final EmergencyContactService emergencyContactService;
     private final NotificationService notificationService;
     private final ProximityService proximityService;
+    private final DispatchService dispatchService;
 
     @Value("${app.matching.max-distance-km:10}")
     private double maxDistanceKm;
@@ -60,19 +63,23 @@ public class OrderService {
     public OrderService(RunOrderRepository runOrderRepository,
                         UserRepository userRepository,
                         ApplicationEventPublisher eventPublisher,
+                        BlindProfileRepository blindProfileRepository,
                         VolunteerProfileRepository volunteerProfileRepository,
                         OrderStatusLogService statusLogService,
                         EmergencyContactService emergencyContactService,
                         NotificationService notificationService,
-                        ProximityService proximityService) {
+                        ProximityService proximityService,
+                        DispatchService dispatchService) {
         this.runOrderRepository = runOrderRepository;
         this.userRepository = userRepository;
         this.eventPublisher = eventPublisher;
+        this.blindProfileRepository = blindProfileRepository;
         this.volunteerProfileRepository = volunteerProfileRepository;
         this.statusLogService = statusLogService;
         this.emergencyContactService = emergencyContactService;
         this.notificationService = notificationService;
         this.proximityService = proximityService;
+        this.dispatchService = dispatchService;
     }
 
     /**
@@ -112,6 +119,27 @@ public class OrderService {
         order.setPlannedStartTime(request.getPlannedStartTime());
         order.setPlannedEndTime(request.getPlannedEndTime());
         order.setStatus(OrderStatus.PENDING_MATCH);
+
+        // 设置特殊需求字段（部分从盲人档案回退默认值）
+        BlindProfile profile = blindProfileRepository.findByUserId(blindUserId).orElse(null);
+
+        order.setExpectedDurationMinutes(request.getExpectedDurationMinutes());
+
+        order.setPacePreference(request.getPacePreference() != null
+                ? request.getPacePreference()
+                : (profile != null ? profile.getDefaultPace() : null));
+
+        order.setRoutePreference(request.getRoutePreference() != null
+                ? request.getRoutePreference()
+                : RoutePreference.NO_PREFERENCE);
+
+        order.setRouteNotes(request.getRouteNotes());
+
+        order.setHasGuideDogThisRun(request.getHasGuideDogThisRun() != null
+                ? request.getHasGuideDogThisRun()
+                : (profile != null ? profile.getHasGuideDog() : null));
+
+        order.setSpecialNotes(request.getSpecialNotes());
 
         // 设置匹配超时提醒时间
         order.setMatchNotifyAt(LocalDateTime.now().plusSeconds(matchTimeoutSeconds));
@@ -442,7 +470,11 @@ public class OrderService {
                         Math.round(distance * 10.0) / 10.0,
                         order.getPlannedStartTime(),
                         order.getPlannedEndTime(),
-                        PhoneMaskUtils.mask(order.getBlindUser().getPhone())
+                        PhoneMaskUtils.mask(order.getBlindUser().getPhone()),
+                        order.getExpectedDurationMinutes(),
+                        order.getPacePreference(),
+                        order.getHasGuideDogThisRun(),
+                        order.getSpecialNotes()
                 ));
             }
         }
@@ -542,7 +574,11 @@ public class OrderService {
      */
     public record AvailableOrderResponse(Long orderId, String startAddress, double distanceKm,
                                           LocalDateTime plannedStart, LocalDateTime plannedEnd,
-                                          String blindUserPhone) {}
+                                          String blindUserPhone,
+                                          Integer expectedDurationMinutes,
+                                          PacePreference pacePreference,
+                                          Boolean hasGuideDogThisRun,
+                                          String specialNotes) {}
 
     // === 私有辅助方法 ===
 
@@ -560,5 +596,43 @@ public class OrderService {
         Map<String, String> params = new HashMap<>();
         params.put("volunteerName", getVolunteerName(volunteerId));
         notificationService.sendNotification(blindUserId, eventType, TargetRole.BLIND_USER, params);
+    }
+
+    /**
+     * 志愿者响应派单（接单或跳过）
+     */
+    @Transactional
+    public void respondToDispatchOrder(Long orderId, Long volunteerId, com.example.demo.dto.RespondAction action) {
+        RunOrder order = runOrderRepository.findById(orderId)
+                .orElseThrow(() -> new OrderNotFoundException("订单不存在，ID: " + orderId));
+
+        if (order.getStatus() != OrderStatus.PENDING_MATCH) {
+            throw new OrderStatusException("订单状态不允许响应: " + order.getStatus());
+        }
+
+        switch (action) {
+            case ACCEPT -> {
+                dispatchService.handleAccept(orderId, volunteerId);
+                // 接单成功后走现有流程：状态已是 PENDING_ACCEPT，通知盲人
+                RunOrder updated = runOrderRepository.findById(orderId).orElse(null);
+                if (updated != null && updated.getVolunteer() == null) {
+                    // 设置志愿者并转 IN_PROGRESS（复用现有 acceptOrder 逻辑）
+                    User volunteer = userRepository.getReferenceById(volunteerId);
+                    updated.setVolunteer(volunteer);
+                    updated.setStatus(OrderStatus.IN_PROGRESS);
+                    updated.setAcceptedAt(LocalDateTime.now());
+                    runOrderRepository.save(updated);
+
+                    statusLogService.logStatusChange(orderId,
+                            OrderStatus.PENDING_MATCH.name(),
+                            OrderStatus.IN_PROGRESS.name(),
+                            volunteerId, "串行派单接单");
+
+                    notifyBlindUser(updated.getBlindUser().getId(), "VOLUNTEER_ACCEPTED", volunteerId);
+                    log.info("志愿者 {} 通过派单接单，订单 {} → IN_PROGRESS", volunteerId, orderId);
+                }
+            }
+            case DECLINE -> dispatchService.handleDecline(orderId, volunteerId);
+        }
     }
 }

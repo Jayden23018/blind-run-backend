@@ -131,7 +131,7 @@ class WebSocketTest extends BaseIntegrationTest {
 
     // ==================== 消息推送 ====================
 
-    /** TC-WS-04：接收 NEW_ORDER 推送 */
+    /** TC-WS-04：接收 NEW_ORDER 推送（串行派单格式） */
     @Test
     @DisplayName("TC-WS-04: 接收 NEW_ORDER 推送")
     void tc04_receiveNewOrderPush() throws Exception {
@@ -145,7 +145,7 @@ class WebSocketTest extends BaseIntegrationTest {
         // 2. 志愿者上报位置
         testHelper.updateVolunteerLocation(volToken, 39.9242, 116.4677, true);
 
-        // 3. 盲人创建订单（触发异步匹配 → WebSocket 推送）
+        // 3. 盲人创建订单（触发异步派单 → WebSocket 推送）
         String blindToken = testHelper.registerAndLoginWithRole("13800112002", "BLIND");
         Long orderId = testHelper.createOrder(blindToken, 39.9042, 116.4674, "朝阳公园南门",
                 TestHelper.defaultStartTime(), TestHelper.defaultEndTime());
@@ -164,14 +164,13 @@ class WebSocketTest extends BaseIntegrationTest {
         assertThat(push.get("orderId").asLong()).isEqualTo(orderId);
         assertThat(push.get("distanceKm").asDouble()).isGreaterThan(0);
 
-        // 手机号脱敏格式：前3位 + **** + 后4位
-        String maskedPhone = push.get("blindUserPhone").asText();
-        assertThat(maskedPhone).matches("\\d{3}\\*{4}\\d{4}");
+        // 串行派单格式：包含 dispatchTimeoutSeconds 字段
+        assertThat(push.has("dispatchTimeoutSeconds")).isTrue();
 
         System.out.println("✅ TC-WS-04 passed — 接收 NEW_ORDER 推送");
     }
 
-    /** TC-WS-05：推送消息格式验证 */
+    /** TC-WS-05：推送消息格式验证（串行派单格式） */
     @Test
     @DisplayName("TC-WS-05: 推送消息格式验证")
     void tc05_pushMessageFormat() throws Exception {
@@ -206,8 +205,9 @@ class WebSocketTest extends BaseIntegrationTest {
         assertThat(push.has("distanceKm")).isTrue();
         assertThat(push.get("distanceKm").asDouble()).isGreaterThan(0);
 
-        assertThat(push.has("blindUserPhone")).isTrue();
-        assertThat(push.get("blindUserPhone").asText()).matches("\\d{3}\\*{4}\\d{4}");
+        // 串行派单格式不再包含 blindUserPhone，改为 dispatchTimeoutSeconds
+        assertThat(push.has("dispatchTimeoutSeconds")).isTrue();
+        assertThat(push.get("dispatchTimeoutSeconds").asInt()).isGreaterThan(0);
 
         assertThat(push.has("startAddress")).isTrue();
         assertThat(push.get("startAddress").asText()).isEqualTo("朝阳公园南门");
