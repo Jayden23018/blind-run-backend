@@ -86,6 +86,10 @@ public class VolunteerLocationService {
      * @param isOnline  是否在线
      */
     public void updateLocation(Long userId, Double latitude, Double longitude, Boolean isOnline) {
+        if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+            throw new IllegalArgumentException("坐标范围不合法：纬度 -90~90，经度 -180~180");
+        }
+
         // 1. 更新数据库（UPSERT 逻辑）
         VolunteerLocation location = locationRepository.findByVolunteerId(userId)
                 .orElseGet(() -> {
@@ -123,6 +127,26 @@ public class VolunteerLocationService {
 
         // 3. 实时位置转发：如果志愿者有进行中的订单，推送位置给对应的盲人用户
         forwardLocationToBlind(userId, latitude, longitude);
+    }
+
+    /**
+     * 将志愿者设为离线 —— 订单完成时调用，清除位置数据
+     */
+    public void setOffline(Long userId) {
+        // 1. 数据库设 isOnline=false
+        locationRepository.findByVolunteerId(userId).ifPresent(loc -> {
+            loc.setIsOnline(false);
+            loc.setUpdatedAt(LocalDateTime.now());
+            locationRepository.save(loc);
+        });
+
+        // 2. 删除 Redis 位置 key
+        try {
+            redisTemplate.delete(REDIS_KEY_PREFIX + userId);
+            log.debug("志愿者 {} 订单完成，已设为离线", userId);
+        } catch (Exception e) {
+            log.warn("清除志愿者 {} Redis 位置失败: {}", userId, e.getMessage());
+        }
     }
 
     /**
@@ -185,6 +209,29 @@ public class VolunteerLocationService {
     }
 
     /**
+     * 获取单个志愿者的位置信息（从 Redis 读取）
+     *
+     * @return 位置信息 Map（userId, lat, lng, isOnline），不存在则返回 null
+     */
+    public Map<String, Object> getVolunteerLocation(Long userId) {
+        try {
+            String json = redisTemplate.opsForValue().get(REDIS_KEY_PREFIX + userId);
+            if (json == null) {
+                return null;
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> data = objectMapper.readValue(json, Map.class);
+            if (Boolean.TRUE.equals(data.get("isOnline"))) {
+                return data;
+            }
+            return null;
+        } catch (Exception e) {
+            log.warn("读取志愿者 {} 位置失败: {}", userId, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * 获取所有在线志愿者的位置信息
      *
      * 【策略】
@@ -194,17 +241,17 @@ public class VolunteerLocationService {
      * @return 在线志愿者位置列表，每项包含 userId、latitude、longitude
      */
     public List<Map<String, Object>> getOnlineVolunteerLocations() {
-        // 1. 先查 Redis
-        Set<String> keys = redisTemplate.keys(REDIS_KEY_PREFIX + "*");
-        if (keys != null && !keys.isEmpty()) {
-            List<Map<String, Object>> result = new ArrayList<>();
-            for (String key : keys) {
+        // 1. 用 SCAN 遍历 Redis（避免 keys() 阻塞）
+        List<Map<String, Object>> result = new ArrayList<>();
+        try (var cursor = redisTemplate.scan(
+                org.springframework.data.redis.core.ScanOptions.scanOptions()
+                        .match(REDIS_KEY_PREFIX + "*").count(100).build())) {
+            cursor.forEachRemaining(key -> {
                 try {
                     String json = redisTemplate.opsForValue().get(key);
                     if (json != null) {
                         @SuppressWarnings("unchecked")
                         Map<String, Object> data = objectMapper.readValue(json, Map.class);
-                        // 只返回在线的志愿者
                         if (Boolean.TRUE.equals(data.get("isOnline"))) {
                             result.add(data);
                         }
@@ -212,17 +259,17 @@ public class VolunteerLocationService {
                 } catch (Exception e) {
                     log.warn("解析 Redis 志愿者位置数据失败: {}", e.getMessage());
                 }
-            }
-            if (!result.isEmpty()) {
-                log.debug("从 Redis 获取到 {} 名在线志愿者", result.size());
-                return result;
-            }
+            });
+        }
+        if (!result.isEmpty()) {
+            log.debug("从 Redis 获取到 {} 名在线志愿者", result.size());
+            return result;
         }
 
         // 2. Redis 无数据，降级查数据库
         log.info("Redis 无在线志愿者数据，降级查询数据库");
         List<VolunteerLocation> dbLocations = locationRepository.findByIsOnlineTrue();
-        List<Map<String, Object>> result = new ArrayList<>();
+        result.clear();
         for (VolunteerLocation loc : dbLocations) {
             Map<String, Object> data = new HashMap<>();
             data.put("userId", loc.getVolunteer().getId());

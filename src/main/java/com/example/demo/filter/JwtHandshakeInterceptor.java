@@ -1,5 +1,6 @@
 package com.example.demo.filter;
 
+import com.example.demo.service.TokenBlacklistService;
 import com.example.demo.util.JwtUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.server.ServerHttpRequest;
@@ -30,9 +31,11 @@ import java.util.Map;
 public class JwtHandshakeInterceptor implements HandshakeInterceptor {
 
     private final JwtUtil jwtUtil;
+    private final TokenBlacklistService tokenBlacklistService;
 
-    public JwtHandshakeInterceptor(JwtUtil jwtUtil) {
+    public JwtHandshakeInterceptor(JwtUtil jwtUtil, TokenBlacklistService tokenBlacklistService) {
         this.jwtUtil = jwtUtil;
+        this.tokenBlacklistService = tokenBlacklistService;
     }
 
     /**
@@ -73,6 +76,13 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
         // 从 token 中提取用户ID，存入 session attributes
         try {
             Long userId = jwtUtil.getUserIdFromToken(token);
+
+            // 检查 token 黑名单
+            if (tokenBlacklistService.isBlacklisted(userId)) {
+                log.warn("WebSocket 握手失败：用户 {} token 已被吊销", userId);
+                return false;
+            }
+
             attributes.put("userId", userId);
             log.info("WebSocket 握手成功：用户 {}", userId);
             return true;

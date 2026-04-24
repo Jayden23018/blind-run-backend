@@ -4,9 +4,9 @@ import com.example.demo.dto.EmergencyTriggerRequest;
 import com.example.demo.entity.EmergencyEvent;
 import com.example.demo.entity.VolunteerAction;
 import com.example.demo.service.EmergencyService;
+import com.example.demo.util.SecurityUtils;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -29,7 +29,7 @@ public class EmergencyController {
     /** 触发紧急事件（盲人端） */
     @PostMapping("/trigger")
     public ResponseEntity<?> triggerEmergency(@Valid @RequestBody EmergencyTriggerRequest request) {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        Long userId = SecurityUtils.getCurrentUserId();
         EmergencyEvent event = emergencyService.triggerEmergency(userId, request);
         return ResponseEntity.ok(Map.of(
                 "success", true,
@@ -42,7 +42,7 @@ public class EmergencyController {
     @PutMapping("/{eventId}/volunteer-response")
     public ResponseEntity<?> volunteerResponse(@PathVariable Long eventId,
                                                 @RequestParam VolunteerAction action) {
-        Long volunteerId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        Long volunteerId = SecurityUtils.getCurrentUserId();
         emergencyService.handleVolunteerResponse(eventId, volunteerId, action);
         return ResponseEntity.ok(Map.of(
                 "success", true,

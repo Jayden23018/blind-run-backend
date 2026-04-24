@@ -4,12 +4,13 @@ import com.example.demo.dto.ApiResponse;
 import com.example.demo.dto.BlindProfileResponse;
 import com.example.demo.dto.BlindProfileUpdateRequest;
 import com.example.demo.dto.BlindVerifyRequest;
+import com.example.demo.entity.BlindVerifyStatus;
 import com.example.demo.service.BlindService;
+import com.example.demo.util.SecurityUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -49,7 +50,7 @@ public class BlindController {
         BlindProfileResponse result = blindService.verifyIdentity(
                 userId, request.getIdCardName(), request.getIdCardNumber());
 
-        if (result.getVerifyStatus().name().equals("VERIFIED")) {
+        if (result.getVerifyStatus() == BlindVerifyStatus.VERIFIED) {
             return ResponseEntity.ok(ApiResponse.ok("身份认证通过"));
         } else {
             return ResponseEntity.ok(ApiResponse.error(400, "身份信息与公安库不匹配，请核实后重试"));
@@ -57,6 +58,6 @@ public class BlindController {
     }
 
     private Long getCurrentUserId() {
-        return (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        return SecurityUtils.getCurrentUserId();
     }
 }

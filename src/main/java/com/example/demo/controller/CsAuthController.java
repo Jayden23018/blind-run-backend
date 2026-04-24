@@ -2,6 +2,8 @@ package com.example.demo.controller;
 
 import com.example.demo.dto.CsLoginRequest;
 import com.example.demo.service.CSAuthService;
+import com.example.demo.service.TokenBlacklistService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -17,9 +19,11 @@ import java.util.Map;
 public class CsAuthController {
 
     private final CSAuthService csAuthService;
+    private final TokenBlacklistService tokenBlacklistService;
 
-    public CsAuthController(CSAuthService csAuthService) {
+    public CsAuthController(CSAuthService csAuthService, TokenBlacklistService tokenBlacklistService) {
         this.csAuthService = csAuthService;
+        this.tokenBlacklistService = tokenBlacklistService;
     }
 
     /**
@@ -37,5 +41,17 @@ public class CsAuthController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", e.getMessage()));
         }
+    }
+
+    /**
+     * 客服登出
+     */
+    @PostMapping("/logout")
+    public ResponseEntity<?> logout(HttpServletRequest request) {
+        String header = request.getHeader("Authorization");
+        if (header != null && header.startsWith("Bearer ")) {
+            tokenBlacklistService.blacklistUserFromToken(header.substring(7));
+        }
+        return ResponseEntity.ok(Map.of("success", true));
     }
 }

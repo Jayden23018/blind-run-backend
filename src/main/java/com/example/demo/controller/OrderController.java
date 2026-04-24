@@ -14,13 +14,16 @@ import com.example.demo.repository.UserRepository;
 import com.example.demo.service.OrderService;
 import com.example.demo.service.VolunteerLocationService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
+import com.example.demo.util.SecurityUtils;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import com.example.demo.util.PhoneMaskUtils;
@@ -41,6 +44,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/orders")
+@Validated
 public class OrderController {
 
     private final OrderService orderService;
@@ -62,21 +66,21 @@ public class OrderController {
 
     @PostMapping
     public ResponseEntity<OrderResponse> createOrder(@Valid @RequestBody CreateOrderRequest request) {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        Long userId = SecurityUtils.getCurrentUserId();
         OrderResponse response = orderService.createOrder(userId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PostMapping("/{id}/accept")
-    public ResponseEntity<?> acceptOrder(@PathVariable Long id) {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+    public ResponseEntity<?> acceptOrder(@PathVariable @Min(1) Long id) {
+        Long userId = SecurityUtils.getCurrentUserId();
         orderService.acceptOrderWithRetry(id, userId);
         return ResponseEntity.ok(Map.of("success", true, "orderId", id));
     }
 
     @PostMapping("/{id}/reject")
-    public ResponseEntity<?> rejectOrder(@PathVariable Long id) {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+    public ResponseEntity<?> rejectOrder(@PathVariable @Min(1) Long id) {
+        Long userId = SecurityUtils.getCurrentUserId();
         orderService.rejectOrder(id, userId);
         return ResponseEntity.ok(Map.of("success", true));
     }
@@ -86,61 +90,53 @@ public class OrderController {
      */
     @PostMapping("/{id}/respond")
     public ResponseEntity<?> respondToDispatch(
-            @PathVariable Long id,
+            @PathVariable @Min(1) Long id,
             @Valid @RequestBody DispatchRespondRequest request) {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        Long userId = SecurityUtils.getCurrentUserId();
         orderService.respondToDispatchOrder(id, userId, request.action());
         return ResponseEntity.ok(Map.of("success", true, "orderId", id));
     }
 
     @PostMapping("/{id}/finish")
-    public ResponseEntity<?> finishOrder(@PathVariable Long id) {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+    public ResponseEntity<?> finishOrder(@PathVariable @Min(1) Long id) {
+        Long userId = SecurityUtils.getCurrentUserId();
         orderService.finishOrder(id, userId);
         return ResponseEntity.ok(Map.of("success", true, "orderId", id));
     }
 
     @PostMapping("/{id}/cancel")
-    public ResponseEntity<?> cancelOrder(@PathVariable Long id) {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+    public ResponseEntity<?> cancelOrder(@PathVariable @Min(1) Long id) {
+        Long userId = SecurityUtils.getCurrentUserId();
         orderService.cancelOrder(id, userId);
         return ResponseEntity.ok(Map.of("success", true));
     }
 
     /** 盲人选择继续等待匹配 */
     @PutMapping("/{id}/keep-waiting")
-    public ResponseEntity<?> keepWaiting(@PathVariable Long id) {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+    public ResponseEntity<?> keepWaiting(@PathVariable @Min(1) Long id) {
+        Long userId = SecurityUtils.getCurrentUserId();
         orderService.keepWaiting(id, userId);
         return ResponseEntity.ok(Map.of("success", true));
     }
 
     @GetMapping("/available")
     public ResponseEntity<?> getAvailableOrders() {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        Long userId = SecurityUtils.getCurrentUserId();
 
-        // 获取志愿者最新位置
-        double lat = 0, lng = 0;
-        boolean hasLocation = false;
-        for (var loc : volunteerLocationService.getOnlineVolunteerLocations()) {
-            if (((Number) loc.get("userId")).longValue() == userId) {
-                lat = ((Number) loc.get("lat")).doubleValue();
-                lng = ((Number) loc.get("lng")).doubleValue();
-                hasLocation = true;
-                break;
-            }
-        }
-        if (!hasLocation) {
+        Map<String, Object> loc = volunteerLocationService.getVolunteerLocation(userId);
+        if (loc == null) {
             return ResponseEntity.ok(List.of());
         }
 
+        double lat = ((Number) loc.get("lat")).doubleValue();
+        double lng = ((Number) loc.get("lng")).doubleValue();
         List<OrderService.AvailableOrderResponse> orders = orderService.getAvailableOrders(userId, lat, lng);
         return ResponseEntity.ok(orders);
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<OrderDetailResponse> getOrder(@PathVariable Long id) {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+    public ResponseEntity<OrderDetailResponse> getOrder(@PathVariable @Min(1) Long id) {
+        Long userId = SecurityUtils.getCurrentUserId();
         RunOrder order = orderService.getOrder(id, userId);
         return ResponseEntity.ok(toDetailResponse(order));
     }
@@ -149,10 +145,10 @@ public class OrderController {
     public ResponseEntity<Page<OrderDetailResponse>> getMyOrders(
             @RequestParam(required = false) String role,
             @RequestParam(required = false) String status,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size) {
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "10") @Min(1) @Max(100) int size) {
 
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        Long userId = SecurityUtils.getCurrentUserId();
 
         // 不传 role 时，自动从用户信息获取
         if (role == null || role.isBlank()) {
@@ -183,7 +179,9 @@ public class OrderController {
             throw new IllegalArgumentException("无效的角色参数，仅支持 BLIND 或 VOLUNTEER");
         }
 
-        return ResponseEntity.ok(orders.map(this::toDetailResponse));
+        // 批量加载 BlindProfile，避免 N+1 查询
+        Map<Long, BlindProfile> profileMap = batchLoadProfiles(orders);
+        return ResponseEntity.ok(orders.map(o -> toDetailResponse(o, profileMap)));
     }
 
     /** 安全解析订单状态枚举，无效值返回中文错误 */
@@ -195,10 +193,47 @@ public class OrderController {
         }
     }
 
-    /** 将 RunOrder 实体转换为 OrderDetailResponse DTO */
+    /** 批量加载页面中所有订单涉及的 BlindProfile */
+    private Map<Long, BlindProfile> batchLoadProfiles(Page<RunOrder> orders) {
+        List<Long> blindUserIds = orders.getContent().stream()
+                .map(o -> o.getBlindUser().getId())
+                .distinct()
+                .toList();
+        if (blindUserIds.isEmpty()) {
+            return Map.of();
+        }
+        return blindProfileRepository.findByUserIdIn(blindUserIds).stream()
+                .collect(java.util.stream.Collectors.toMap(bp -> bp.getUser().getId(), bp -> bp));
+    }
+
+    /** 将 RunOrder 实体转换为 OrderDetailResponse DTO（列表查询用，使用预加载的 profileMap） */
+    private OrderDetailResponse toDetailResponse(RunOrder order, Map<Long, BlindProfile> profileMap) {
+        String volunteerPhone = order.getVolunteer() != null ? PhoneMaskUtils.mask(order.getVolunteer().getPhone()) : null;
+        BlindProfile blindProfile = order.getBlindUser() != null ? profileMap.get(order.getBlindUser().getId()) : null;
+        return new OrderDetailResponse(
+                order.getId(),
+                order.getStatus(),
+                order.getStartAddress(),
+                order.getPlannedStartTime(),
+                order.getPlannedEndTime(),
+                volunteerPhone,
+                order.getAcceptedAt(),
+                order.getCreatedAt(),
+                order.getExpectedDurationMinutes(),
+                order.getPacePreference(),
+                order.getRoutePreference(),
+                order.getRouteNotes(),
+                order.getHasGuideDogThisRun(),
+                order.getSpecialNotes(),
+                blindProfile != null ? blindProfile.getVisionLevel() : null,
+                blindProfile != null ? blindProfile.getTetherPreference() : null,
+                blindProfile != null ? blindProfile.getChatPreference() : null
+        );
+    }
+
+    /** 将 RunOrder 实体转换为 OrderDetailResponse DTO（单条查询用） */
     private OrderDetailResponse toDetailResponse(RunOrder order) {
         String volunteerPhone = order.getVolunteer() != null ? PhoneMaskUtils.mask(order.getVolunteer().getPhone()) : null;
-        // 从盲人档案获取冗余字段
         BlindProfile blindProfile = order.getBlindUser() != null
                 ? blindProfileRepository.findByUserId(order.getBlindUser().getId()).orElse(null) : null;
         return new OrderDetailResponse(

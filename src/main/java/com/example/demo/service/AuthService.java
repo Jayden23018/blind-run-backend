@@ -57,8 +57,10 @@ public class AuthService {
             return userRepository.save(newUser);
         });
 
-        String token = jwtUtil.generateToken(user.getId());
         String role = user.getRole() != null ? user.getRole().name() : UserRole.UNSET.name();
+
+        // 将用户角色写入 JWT，这样后续请求可以通过角色直接鉴权
+        String token = jwtUtil.generateToken(user.getId(), null, UserRole.UNSET.equals(user.getRole()) ? null : role);
 
         return new LoginResponse(token, user.getId(), role);
     }

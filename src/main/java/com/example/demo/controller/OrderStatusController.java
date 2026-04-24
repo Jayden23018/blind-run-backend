@@ -7,8 +7,10 @@ import com.example.demo.exception.OrderPermissionException;
 import com.example.demo.repository.RunOrderRepository;
 import com.example.demo.service.OrderService;
 import com.example.demo.service.OrderStatusLogService;
+import com.example.demo.util.SecurityUtils;
+import jakarta.validation.constraints.Min;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -23,6 +25,7 @@ import java.util.stream.Collectors;
  */
 @RestController
 @RequestMapping("/api/orders")
+@Validated
 public class OrderStatusController {
 
     private final OrderService orderService;
@@ -39,8 +42,8 @@ public class OrderStatusController {
 
     /** 获取状态变更历史 */
     @GetMapping("/{id}/status-logs")
-    public ResponseEntity<List<OrderStatusLogResponse>> getStatusLogs(@PathVariable Long id) {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+    public ResponseEntity<List<OrderStatusLogResponse>> getStatusLogs(@PathVariable @Min(1) Long id) {
+        Long userId = SecurityUtils.getCurrentUserId();
 
         // 校验权限
         RunOrder order = runOrderRepository.findByIdWithUsers(id)
@@ -70,16 +73,16 @@ public class OrderStatusController {
 
     /** 志愿者确认出发 */
     @PostMapping("/{id}/en-route")
-    public ResponseEntity<?> driverEnRoute(@PathVariable Long id) {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+    public ResponseEntity<?> driverEnRoute(@PathVariable @Min(1) Long id) {
+        Long userId = SecurityUtils.getCurrentUserId();
         orderService.driverEnRoute(id, userId);
         return ResponseEntity.ok(Map.of("success", true, "orderId", id));
     }
 
     /** 志愿者确认到达 */
     @PostMapping("/{id}/arrived")
-    public ResponseEntity<?> driverArrived(@PathVariable Long id) {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+    public ResponseEntity<?> driverArrived(@PathVariable @Min(1) Long id) {
+        Long userId = SecurityUtils.getCurrentUserId();
         orderService.driverArrived(id, userId);
         return ResponseEntity.ok(Map.of("success", true, "orderId", id));
     }

@@ -5,7 +5,9 @@ import com.example.demo.dto.SendCodeRequest;
 import com.example.demo.dto.VerifyCodeRequest;
 import com.example.demo.entity.User;
 import com.example.demo.service.AuthService;
+import com.example.demo.service.TokenBlacklistService;
 import com.example.demo.util.PhoneMaskUtils;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -25,9 +27,11 @@ import java.util.Map;
 public class AuthController {
 
     private final AuthService authService;
+    private final TokenBlacklistService tokenBlacklistService;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, TokenBlacklistService tokenBlacklistService) {
         this.authService = authService;
+        this.tokenBlacklistService = tokenBlacklistService;
     }
 
     @PostMapping("/send-code")
@@ -40,6 +44,15 @@ public class AuthController {
     public ResponseEntity<LoginResponse> verifyCode(@Valid @RequestBody VerifyCodeRequest request) {
         LoginResponse response = authService.verifyCodeAndLogin(request.getPhone(), request.getCode());
         return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<?> logout(HttpServletRequest request) {
+        String header = request.getHeader("Authorization");
+        if (header != null && header.startsWith("Bearer ")) {
+            tokenBlacklistService.blacklistUserFromToken(header.substring(7));
+        }
+        return ResponseEntity.ok(Map.of("success", true));
     }
 
     @GetMapping("/me")

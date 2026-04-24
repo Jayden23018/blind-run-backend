@@ -66,17 +66,27 @@ public class TestHelper {
         return extractToken(response.getBody());
     }
 
-    /** 设置用户角色 */
-    public void setRole(String token, String role) {
+    /** 设置用户角色，返回包含角色的新 token */
+    public String setRole(String token, String role) {
         ResponseEntity<String> response = rest.postForEntity(
                 "/api/user/role", jsonEntity(token, "{\"role\":\"" + role + "\"}"), String.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        // 提取新 token（包含角色 claim）
+        try {
+            JsonNode json = MAPPER.readTree(response.getBody());
+            if (json.has("token")) {
+                return json.get("token").asText();
+            }
+        } catch (Exception e) {
+            // 兼容：如果响应没有新 token，继续用旧 token
+        }
+        return token;
     }
 
     /** 注册 + 设角色，一步到位（志愿者自动认证，盲人自动添加紧急联系人） */
     public String registerAndLoginWithRole(String phone, String role) {
         String token = registerAndLogin(phone);
-        setRole(token, role);
+        token = setRole(token, role);
 
         if ("VOLUNTEER".equals(role)) {
             Long userId = extractUserId(token);
@@ -98,8 +108,7 @@ public class TestHelper {
     /** 注册志愿者但不自动认证 */
     public String registerVolunteerWithoutVerification(String phone) {
         String token = registerAndLogin(phone);
-        setRole(token, "VOLUNTEER");
-        return token;
+        return setRole(token, "VOLUNTEER");
     }
 
     /** 为盲人用户添加紧急联系人（下单前置条件） */

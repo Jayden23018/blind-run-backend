@@ -4,6 +4,7 @@ import com.example.demo.dto.ApiResponse;
 import com.example.demo.dto.volunteer.*;
 import com.example.demo.service.TrainingService;
 import com.example.demo.service.VolunteerRegistrationService;
+import com.example.demo.util.SecurityUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -202,6 +203,6 @@ public class VolunteerRegistrationController {
     // === 私有方法 ===
 
     private Long getCurrentUserId() {
-        return (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        return SecurityUtils.getCurrentUserId();
     }
 }

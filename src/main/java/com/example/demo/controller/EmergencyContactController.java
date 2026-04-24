@@ -6,7 +6,7 @@ import com.example.demo.service.EmergencyContactService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
+import com.example.demo.util.SecurityUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -67,7 +67,7 @@ public class EmergencyContactController {
 
     /** 校验当前 JWT 用户与路径参数一致 */
     private void verifyUser(Long userId) {
-        Long currentUserId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        Long currentUserId = SecurityUtils.getCurrentUserId();
         if (!currentUserId.equals(userId)) {
             throw new SecurityException("无权操作此用户的联系人");
         }

@@ -64,13 +64,17 @@ class OrderServiceTest {
     @Mock
     private DispatchService dispatchService;
 
+    @Mock
+    private VolunteerLocationService volunteerLocationService;
+
     private OrderService orderService;
 
     @BeforeEach
     void setUp() {
         orderService = new OrderService(runOrderRepository, userRepository, eventPublisher,
                 blindProfileRepository, volunteerProfileRepository, statusLogService,
-                emergencyContactService, notificationService, proximityService, dispatchService);
+                emergencyContactService, notificationService, proximityService, dispatchService,
+                volunteerLocationService);
     }
 
     /** 正常创建订单 */
