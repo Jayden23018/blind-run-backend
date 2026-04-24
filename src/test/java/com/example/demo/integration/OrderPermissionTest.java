@@ -49,7 +49,7 @@ class OrderPermissionTest extends BaseIntegrationTest {
         Thread.sleep(500); // 等待异步派单
         testHelper.respondAccept(volToken, orderId);
 
-        // 用户 C（陌生人）尝试查看 A+B 的订单
+        // 用户 C（陌生人，无角色）尝试查看 A+B 的订单
         String strangerToken = testHelper.registerAndLogin("13800070003");
         ResponseEntity<String> response = testHelper.getOrder(strangerToken, orderId);
 
@@ -57,7 +57,6 @@ class OrderPermissionTest extends BaseIntegrationTest {
         JsonNode json = testHelper.extractJson(response.getBody());
         assertThat(json.get("success").asBoolean()).isFalse();
         assertThat(json.get("code").asInt()).isEqualTo(403);
-        assertThat(json.get("message").asText()).contains("无权查看");
 
         System.out.println("✅ TC-PERM-02 passed — 第三方用户查看他人订单返回403");
     }

@@ -3,6 +3,7 @@ package com.example.demo.service;
 import com.example.demo.dto.ScoredCandidate;
 import com.example.demo.entity.*;
 import com.example.demo.repository.RunOrderRepository;
+import org.springframework.dao.OptimisticLockingFailureException;
 import com.example.demo.repository.VolunteerAvailableTimeRepository;
 import com.example.demo.repository.VolunteerProfileRepository;
 import com.example.demo.util.PhoneMaskUtils;
@@ -121,37 +122,49 @@ public class DispatchService {
             throw new IllegalStateException("该订单当前未派送给您，无法接单");
         }
 
-        // 2. 分布式锁防并发
+        // 2. 分布式锁防并发（TTL 30s，远超正常处理时间）
         String lockKey = String.format(LOCK_KEY, orderId);
         boolean locked = Boolean.TRUE.equals(
-                redisTemplate.opsForValue().setIfAbsent(lockKey, String.valueOf(volunteerId), 10, TimeUnit.SECONDS));
+                redisTemplate.opsForValue().setIfAbsent(lockKey, String.valueOf(volunteerId), 30, TimeUnit.SECONDS));
         if (!locked) {
             throw new IllegalStateException("订单正在处理中，请稍后重试");
         }
 
         try {
-            RunOrder order = runOrderRepository.findById(orderId)
-                    .orElseThrow(() -> new IllegalArgumentException("订单不存在: " + orderId));
+            int attempts = 0;
+            while (true) {
+                attempts++;
+                try {
+                    RunOrder order = runOrderRepository.findById(orderId)
+                            .orElseThrow(() -> new IllegalArgumentException("订单不存在: " + orderId));
 
-            if (order.getStatus() != OrderStatus.PENDING_MATCH) {
-                throw new IllegalStateException("订单状态不允许接单: " + order.getStatus());
+                    if (order.getStatus() != OrderStatus.PENDING_MATCH) {
+                        throw new IllegalStateException("订单状态不允许接单: " + order.getStatus());
+                    }
+
+                    // 3. 更新订单状态（先保存 DB，成功后再清 Redis）
+                    order.setStatus(OrderStatus.PENDING_ACCEPT);
+                    order.setDispatchCurrentVolunteerId(null);
+                    runOrderRepository.save(order);
+
+                    // 4. 更新志愿者接单统计
+                    updateAcceptStats(volunteerId);
+
+                    // 5. DB 保存成功，清理 Redis 派单状态
+                    clearDispatchState(orderId);
+
+                    long elapsed = order.getDispatchStartedAt() != null
+                            ? java.time.Duration.between(order.getDispatchStartedAt(), LocalDateTime.now()).getSeconds()
+                            : -1;
+                    log.info("志愿者 {} 接受订单 {}，派单耗时: {}s", volunteerId, orderId, elapsed);
+                    break;
+                } catch (OptimisticLockingFailureException e) {
+                    if (attempts >= 3) {
+                        throw new IllegalStateException("订单并发冲突，请稍后重试");
+                    }
+                    log.warn("志愿者 {} 接单 {} 乐观锁冲突，第 {} 次重试", volunteerId, orderId, attempts);
+                }
             }
-
-            // 3. 更新订单状态
-            order.setStatus(OrderStatus.PENDING_ACCEPT);
-            order.setDispatchCurrentVolunteerId(null);
-            runOrderRepository.save(order);
-
-            // 4. 更新志愿者接单统计
-            updateAcceptStats(volunteerId);
-
-            // 5. 清理 Redis 派单状态
-            clearDispatchState(orderId);
-
-            long elapsed = order.getDispatchStartedAt() != null
-                    ? java.time.Duration.between(order.getDispatchStartedAt(), LocalDateTime.now()).getSeconds()
-                    : -1;
-            log.info("志愿者 {} 接受订单 {}，派单耗时: {}s", volunteerId, orderId, elapsed);
         } finally {
             redisTemplate.delete(lockKey);
         }

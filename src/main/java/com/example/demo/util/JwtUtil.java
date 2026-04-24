@@ -57,7 +57,8 @@ public class JwtUtil {
      */
     private SecretKey getSigningKey() {
         if (WEAK_DEFAULTS.contains(secret)) {
-            log.warn("⚠️ JWT 密钥使用开发默认值，生产环境必须通过环境变量 JWT_SECRET 设置强随机密钥！");
+            throw new IllegalStateException(
+                    "JWT 密钥使用开发默认值，生产环境必须通过环境变量 JWT_SECRET 设置强随机密钥！");
         }
         if (secret.length() < 32) {
             throw new IllegalStateException("JWT 密钥长度不足 32 字节，请检查 JWT_SECRET 环境变量");

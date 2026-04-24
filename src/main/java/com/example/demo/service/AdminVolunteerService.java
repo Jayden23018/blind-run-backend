@@ -7,7 +7,6 @@ import com.example.demo.dto.admin.VolunteerReviewItemResponse;
 import com.example.demo.entity.IdVerifyStatus;
 import com.example.demo.entity.RegistrationStep;
 import com.example.demo.entity.TargetRole;
-import com.example.demo.entity.TrainingProgress;
 import com.example.demo.entity.TrainingProgressStatus;
 import com.example.demo.repository.TrainingProgressRepository;
 import com.example.demo.repository.VolunteerProfileRepository;
@@ -45,8 +44,7 @@ public class AdminVolunteerService {
      * 获取待审核身份证列表
      */
     public List<VolunteerReviewItemResponse> getVolunteersForIdReview() {
-        return volunteerProfileRepository.findAll().stream()
-                .filter(p -> p.getIdVerifyStatus() == IdVerifyStatus.PENDING)
+        return volunteerProfileRepository.findByIdVerifyStatus(IdVerifyStatus.PENDING).stream()
                 .map(this::toReviewItemResponse)
                 .toList();
     }
@@ -97,16 +95,8 @@ public class AdminVolunteerService {
      */
     public TrainingStatsResponse getTrainingStats() {
         long totalVolunteers = volunteerProfileRepository.count();
-        long completedVolunteers = volunteerProfileRepository.findAll().stream()
-                .filter(p -> p.getRegistrationStep() == RegistrationStep.STEP_4_COMPLETED)
-                .count();
-
-        long inProgressVolunteers = trainingProgressRepository.findAll().stream()
-                .filter(p -> p.getStatus() == TrainingProgressStatus.IN_PROGRESS)
-                .map(TrainingProgress::getVolunteerId)
-                .distinct()
-                .count();
-
+        long completedVolunteers = volunteerProfileRepository.countByRegistrationStep(RegistrationStep.STEP_4_COMPLETED);
+        long inProgressVolunteers = trainingProgressRepository.countDistinctVolunteerIdByStatus(TrainingProgressStatus.IN_PROGRESS);
         double completionRate = totalVolunteers > 0 ? (completedVolunteers * 100.0 / totalVolunteers) : 0.0;
 
         return new TrainingStatsResponse(

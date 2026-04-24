@@ -27,4 +27,5 @@ public interface TrainingProgressRepository extends JpaRepository<TrainingProgre
      * 查询志愿者已完成的课程数
      */
     long countByVolunteerIdAndStatus(Long volunteerId, com.example.demo.entity.TrainingProgressStatus status);
+    long countDistinctVolunteerIdByStatus(com.example.demo.entity.TrainingProgressStatus status);
 }
