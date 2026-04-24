@@ -53,17 +53,14 @@ public class NotificationService {
      * @param params 占位符参数（如 {volunteerName} → params.put("volunteerName", "张三")）
      * @return 解析后的通知文本，未找到模板时返回 null
      */
-    @Cacheable(value = "notificationTemplates", key = "#eventType + '_' + #targetRole")
     public String sendNotification(Long userId, String eventType, TargetRole targetRole,
                                    Map<String, String> params) {
         try {
-            var templateOpt = templateRepository.findByEventTypeAndTargetRoleAndIsActiveTrue(eventType, targetRole);
-            if (templateOpt.isEmpty()) {
-                log.warn("未找到通知模板: eventType={}, targetRole={}", eventType, targetRole);
+            NotificationTemplate template = getCachedTemplate(eventType, targetRole);
+            if (template == null) {
                 return null;
             }
 
-            NotificationTemplate template = templateOpt.get();
             String text = template.getTemplateText();
             String ttsText = template.getTtsText();
 
@@ -95,6 +92,16 @@ public class NotificationService {
             log.error("发送模板通知失败: eventType={}, userId={}, error={}", eventType, userId, e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * 查询通知模板（带缓存）
+     * 缓存 key = eventType + '_' + targetRole，模板更新时 @CacheEvict 清除
+     */
+    @Cacheable(value = "notificationTemplates", key = "#eventType + '_' + #targetRole")
+    public NotificationTemplate getCachedTemplate(String eventType, TargetRole targetRole) {
+        return templateRepository.findByEventTypeAndTargetRoleAndIsActiveTrue(eventType, targetRole)
+                .orElse(null);
     }
 
     /**

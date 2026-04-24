@@ -44,7 +44,7 @@ public class TokenBlacklistService {
     public void blacklistUser(Long userId, long remainingSeconds) {
         long ttl = Math.max(1, remainingSeconds);
         String key = REDIS_KEY_PREFIX + userId;
-        redisTemplate.opsForValue().set(key, "1", ttl, TimeUnit.SECONDS);
+        redisTemplate.opsForValue().setIfAbsent(key, "1", ttl, TimeUnit.SECONDS);
         log.info("用户 {} 已加入 token 黑名单，TTL={}秒", userId, ttl);
     }
 

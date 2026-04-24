@@ -95,6 +95,22 @@ public class SecurityConfig {
                         .requestMatchers("/api/cs/**").hasAnyRole("CS_CS", "CS_ADMIN")
                         // 紧急联系人需要 BLIND 角色
                         .requestMatchers("/api/users/*/emergency-contacts/**").hasRole("BLIND")
+                        // 订单：创建/取消/继续等待 → BLIND
+                        .requestMatchers("POST /api/orders").hasRole("BLIND")
+                        .requestMatchers("POST /api/orders/*/cancel").hasRole("BLIND")
+                        .requestMatchers("PUT /api/orders/*/keep-waiting").hasRole("BLIND")
+                        // 订单：接单/拒绝/响应/完成/出发/到达/可接单列表 → VOLUNTEER
+                        .requestMatchers("POST /api/orders/*/accept").hasRole("VOLUNTEER")
+                        .requestMatchers("POST /api/orders/*/reject").hasRole("VOLUNTEER")
+                        .requestMatchers("POST /api/orders/*/respond").hasRole("VOLUNTEER")
+                        .requestMatchers("POST /api/orders/*/finish").hasRole("VOLUNTEER")
+                        .requestMatchers("POST /api/orders/*/en-route").hasRole("VOLUNTEER")
+                        .requestMatchers("POST /api/orders/*/arrived").hasRole("VOLUNTEER")
+                        .requestMatchers("GET /api/orders/available").hasRole("VOLUNTEER")
+                        // 订单：评价 → BLIND
+                        .requestMatchers("POST /api/orders/*/review").hasRole("BLIND")
+                        // 订单：查询类 → BLIND 或 VOLUNTEER
+                        .requestMatchers("/api/orders/**").hasAnyRole("BLIND", "VOLUNTEER")
                         // 其他所有接口需要认证（必须携带有效 JWT token）
                         .anyRequest().authenticated()
                 )
