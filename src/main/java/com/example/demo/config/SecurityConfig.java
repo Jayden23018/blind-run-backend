@@ -11,7 +11,10 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletResponse;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Spring Security 安全配置 —— 定义 "哪些接口需要登录才能访问"
@@ -38,13 +41,15 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtFilter jwtFilter;
+    private final ObjectMapper objectMapper;
 
     /** 允许的 CORS 来源域名列表，通过配置文件注入，开发环境默认允许 localhost */
     @Value("${cors.allowed-origins:http://localhost:3000,http://localhost:5173}")
     private String allowedOrigins;
 
-    public SecurityConfig(JwtFilter jwtFilter) {
+    public SecurityConfig(JwtFilter jwtFilter, ObjectMapper objectMapper) {
         this.jwtFilter = jwtFilter;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -68,6 +73,9 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 // 配置URL权限规则
                 .authorizeHttpRequests(auth -> auth
+                        // 登出端点需要认证（必须在 permitAll 之前）
+                        .requestMatchers("/api/auth/logout").authenticated()
+                        .requestMatchers("/api/cs/auth/logout").authenticated()
                         // 认证相关接口（发送验证码、验证登录）允许匿名访问
                         .requestMatchers("/api/auth/**").permitAll()
                         // 客服登录接口允许匿名访问
@@ -77,13 +85,34 @@ public class SecurityConfig {
                         // WebSocket 握手端点允许匿名访问（认证在 HandshakeInterceptor 中处理）
                         .requestMatchers("/ws/volunteer/**").permitAll()
                         .requestMatchers("/ws/blind/**").permitAll()
+                        // 角色限制：盲人端点需要 BLIND 角色
+                        .requestMatchers("/api/blind/**").hasRole("BLIND")
+                        // 角色限制：志愿者端点需要 VOLUNTEER 角色
+                        .requestMatchers("/api/volunteer/**").hasRole("VOLUNTEER")
+                        // 管理后台需要 CS_ADMIN 角色
+                        .requestMatchers("/api/admin/**").hasRole("CS_ADMIN")
+                        // 客服端点需要 CS 或 CS_ADMIN 角色
+                        .requestMatchers("/api/cs/**").hasAnyRole("CS_CS", "CS_ADMIN")
+                        // 紧急联系人需要 BLIND 角色
+                        .requestMatchers("/api/users/*/emergency-contacts/**").hasRole("BLIND")
                         // 其他所有接口需要认证（必须携带有效 JWT token）
                         .anyRequest().authenticated()
                 )
-                // 未认证请求返回 401（默认返回 403，不适合 REST API）
+                // 未认证请求返回 401 JSON，无权限返回 403 JSON
                 .exceptionHandling(ex -> ex
-                        .authenticationEntryPoint((request, response, authException) ->
-                                response.sendError(401, "未认证")))
+                        .authenticationEntryPoint((request, response, authException) -> {
+                            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                            response.setContentType("application/json;charset=UTF-8");
+                            response.getWriter().write(
+                                    objectMapper.writeValueAsString(Map.of("success", false, "code", 401, "message", "未认证")));
+                        })
+                        .accessDeniedHandler((request, response, accessDeniedException) -> {
+                            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                            response.setContentType("application/json;charset=UTF-8");
+                            response.getWriter().write(
+                                    objectMapper.writeValueAsString(Map.of("success", false, "code", 403, "message", "无权访问")));
+                        })
+                )
                 // 在 Spring Security 的过滤器链中插入我们的 JWT 过滤器
                 // 在 UsernamePasswordAuthenticationFilter 之前执行
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);

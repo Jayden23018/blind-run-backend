@@ -10,7 +10,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
+import com.example.demo.util.SecurityUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -40,14 +40,14 @@ public class VolunteerController {
 
     @GetMapping("/profile")
     public ResponseEntity<VolunteerProfileResponse> getProfile() {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        Long userId = SecurityUtils.getCurrentUserId();
         VolunteerProfileResponse profile = volunteerService.getProfile(userId);
         return ResponseEntity.ok(profile);
     }
 
     @PutMapping("/profile")
     public ResponseEntity<?> updateProfile(@Valid @RequestBody VolunteerProfileUpdateRequest request) {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        Long userId = SecurityUtils.getCurrentUserId();
         VolunteerProfileResponse profile = volunteerService.updateProfile(userId, request);
         return ResponseEntity.ok(Map.of("success", true, "data", profile));
     }
@@ -57,7 +57,7 @@ public class VolunteerController {
             @Parameter(description = "资质证件文件（图片或PDF）", required = true,
                     content = @Content(mediaType = MediaType.APPLICATION_OCTET_STREAM_VALUE))
             @RequestParam("file") MultipartFile file) {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        Long userId = SecurityUtils.getCurrentUserId();
 
         // 文件校验
         if (file == null || file.isEmpty()) {
@@ -80,7 +80,7 @@ public class VolunteerController {
 
     @GetMapping("/verification/status")
     public ResponseEntity<?> getVerificationStatus() {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        Long userId = SecurityUtils.getCurrentUserId();
         String status = volunteerService.getVerificationStatus(userId);
         return ResponseEntity.ok(Map.of("status", status));
     }
@@ -91,7 +91,7 @@ public class VolunteerController {
     @Deprecated
     @PostMapping("/location")
     public ResponseEntity<?> updateLocation(@Valid @RequestBody VolunteerLocationRequest request) {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        Long userId = SecurityUtils.getCurrentUserId();
         volunteerLocationService.updateLocation(
                 userId,
                 request.getLatitude(),

@@ -12,6 +12,7 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 盲人用户 WebSocket 处理器 —— 处理盲人的 WebSocket 连接和位置上报
@@ -33,6 +34,11 @@ import java.util.Map;
 @Slf4j
 @Component
 public class BlindWebSocketHandler extends TextWebSocketHandler {
+
+    private static final int MAX_MESSAGE_SIZE = 64 * 1024;
+    private static final long MIN_MESSAGE_INTERVAL_MS = 500;
+
+    private final ConcurrentHashMap<Long, Long> lastMessageTime = new ConcurrentHashMap<>();
 
     private final UnifiedSessionRegistry sessionRegistry;
     private final BlindLocationService blindLocationService;
@@ -65,6 +71,19 @@ public class BlindWebSocketHandler extends TextWebSocketHandler {
             log.warn("收到消息但 session 中无 userId，忽略");
             return;
         }
+
+        if (message.getPayloadLength() > MAX_MESSAGE_SIZE) {
+            log.warn("盲人用户 {} 消息超过大小限制 ({} bytes)", userId, message.getPayloadLength());
+            session.close(CloseStatus.POLICY_VIOLATION);
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        Long last = lastMessageTime.get(userId);
+        if (last != null && now - last < MIN_MESSAGE_INTERVAL_MS) {
+            return;
+        }
+        lastMessageTime.put(userId, now);
 
         try {
             JsonNode json = objectMapper.readTree(message.getPayload());
@@ -103,6 +122,7 @@ public class BlindWebSocketHandler extends TextWebSocketHandler {
         Long userId = getUserIdFromSession(session);
         if (userId != null) {
             sessionRegistry.unregister(userId);
+            lastMessageTime.remove(userId);
             log.info("盲人用户 {} WebSocket 已断开", userId);
         }
     }

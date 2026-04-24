@@ -33,6 +33,12 @@ public class BlindLocationService {
      * 更新盲人位置
      */
     public void updateLocation(Long userId, BlindLocationRequest request) {
+        double lat = request.getLatitude();
+        double lng = request.getLongitude();
+        if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+            throw new IllegalArgumentException("坐标范围不合法：纬度 -90~90，经度 -180~180");
+        }
+
         String key = REDIS_KEY_PREFIX + userId;
         String value = request.getLatitude() + "," + request.getLongitude();
         redisTemplate.opsForValue().set(key, value, LOCATION_TTL_SECONDS, TimeUnit.SECONDS);
@@ -51,10 +57,16 @@ public class BlindLocationService {
         if (value == null) {
             return null;
         }
-        String[] parts = value.split(",");
-        Map<String, Double> location = new HashMap<>();
-        location.put("lat", Double.parseDouble(parts[0]));
-        location.put("lng", Double.parseDouble(parts[1]));
-        return location;
+        try {
+            String[] parts = value.split(",");
+            Map<String, Double> location = new HashMap<>();
+            location.put("lat", Double.parseDouble(parts[0]));
+            location.put("lng", Double.parseDouble(parts[1]));
+            return location;
+        } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
+            log.warn("盲人位置数据格式异常: userId={}, value={}", userId, value);
+            redisTemplate.delete(key);
+            return null;
+        }
     }
 }

@@ -10,6 +10,8 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
+import java.util.concurrent.ConcurrentHashMap;
+
 /**
  * 志愿者 WebSocket 处理器 —— 处理志愿者的 WebSocket 连接事件和位置上报
  *
@@ -25,6 +27,11 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 @Slf4j
 @Component
 public class VolunteerWebSocketHandler extends TextWebSocketHandler {
+
+    private static final int MAX_MESSAGE_SIZE = 64 * 1024;  // 64KB
+    private static final long MIN_MESSAGE_INTERVAL_MS = 500; // 500ms
+
+    private final ConcurrentHashMap<Long, Long> lastMessageTime = new ConcurrentHashMap<>();
 
     private final UnifiedSessionRegistry sessionRegistry;
     private final VolunteerLocationService volunteerLocationService;
@@ -68,6 +75,21 @@ public class VolunteerWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
+        // 消息大小限制
+        if (message.getPayloadLength() > MAX_MESSAGE_SIZE) {
+            log.warn("志愿者 {} 消息超过大小限制 ({} bytes)", userId, message.getPayloadLength());
+            session.close(CloseStatus.POLICY_VIOLATION);
+            return;
+        }
+
+        // 速率限制
+        long now = System.currentTimeMillis();
+        Long last = lastMessageTime.get(userId);
+        if (last != null && now - last < MIN_MESSAGE_INTERVAL_MS) {
+            return;
+        }
+        lastMessageTime.put(userId, now);
+
         try {
             JsonNode json = objectMapper.readTree(message.getPayload());
             String type = json.has("type") ? json.get("type").asText() : "";
@@ -100,6 +122,7 @@ public class VolunteerWebSocketHandler extends TextWebSocketHandler {
         Long userId = getUserIdFromSession(session);
         if (userId != null) {
             sessionRegistry.unregister(userId);
+            lastMessageTime.remove(userId);
         }
     }
 

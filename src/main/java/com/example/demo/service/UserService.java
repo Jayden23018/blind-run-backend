@@ -23,10 +23,13 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final RunOrderRepository runOrderRepository;
+    private final TokenBlacklistService tokenBlacklistService;
 
-    public UserService(UserRepository userRepository, RunOrderRepository runOrderRepository) {
+    public UserService(UserRepository userRepository, RunOrderRepository runOrderRepository,
+                       TokenBlacklistService tokenBlacklistService) {
         this.userRepository = userRepository;
         this.runOrderRepository = runOrderRepository;
+        this.tokenBlacklistService = tokenBlacklistService;
     }
 
     /**
@@ -76,5 +79,8 @@ public class UserService {
 
         user.setDeletedAt(LocalDateTime.now());
         userRepository.save(user);
+
+        // 立即使该用户的所有 token 失效
+        tokenBlacklistService.blacklistUserWithMaxTtl(targetUserId);
     }
 }

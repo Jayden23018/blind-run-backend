@@ -1,8 +1,10 @@
 package com.example.demo.controller;
 
 import com.example.demo.service.UserService;
+import jakarta.validation.constraints.Min;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
+import com.example.demo.util.SecurityUtils;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -15,6 +17,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/users")
+@Validated
 public class UserController {
 
     private final UserService userService;
@@ -24,15 +27,15 @@ public class UserController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<?> getUserById(@PathVariable Long id) {
-        Long currentUserId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+    public ResponseEntity<?> getUserById(@PathVariable @Min(1) Long id) {
+        Long currentUserId = SecurityUtils.getCurrentUserId();
         Map<String, Object> userInfo = userService.getUserInfo(id, currentUserId);
         return ResponseEntity.ok(userInfo);
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<?> deleteUser(@PathVariable Long id) {
-        Long currentUserId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+    public ResponseEntity<?> deleteUser(@PathVariable @Min(1) Long id) {
+        Long currentUserId = SecurityUtils.getCurrentUserId();
         userService.deleteAccount(id, currentUserId);
         return ResponseEntity.ok(Map.of("success", true));
     }

@@ -56,13 +56,17 @@ class OrderCancelTest {
     @Mock
     private DispatchService dispatchService;
 
+    @Mock
+    private VolunteerLocationService volunteerLocationService;
+
     private OrderService orderService;
 
     @BeforeEach
     void setUp() {
         orderService = new OrderService(runOrderRepository, userRepository, eventPublisher,
                 blindProfileRepository, volunteerProfileRepository, statusLogService,
-                emergencyContactService, notificationService, proximityService, dispatchService);
+                emergencyContactService, notificationService, proximityService, dispatchService,
+                volunteerLocationService);
     }
 
     /** 盲人在 IN_PROGRESS 状态取消 → 403 */

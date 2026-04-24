@@ -78,16 +78,21 @@ public class JwtUtil {
      *   signature = 用密钥对前两部分进行签名，防止篡改
      */
     public String generateToken(Long userId) {
-        return generateToken(userId, null);
+        return generateToken(userId, null, null);
+    }
+
+    public String generateToken(Long userId, String csRole) {
+        return generateToken(userId, csRole, null);
     }
 
     /**
-     * 生成 JWT Token（带额外 claim，用于客服账号）
+     * 生成 JWT Token（完整版）
      *
-     * @param userId 用户ID
-     * @param csRole 客服角色（CS/ADMIN），普通用户传 null
+     * @param userId   用户ID
+     * @param csRole   客服角色（CS/ADMIN），普通用户传 null
+     * @param userRole 用户角色（BLIND/VOLUNTEER），登录/设角色时传入
      */
-    public String generateToken(Long userId, String csRole) {
+    public String generateToken(Long userId, String csRole, String userRole) {
         var builder = Jwts.builder()
                 .subject(String.valueOf(userId))
                 .issuedAt(new Date())
@@ -95,6 +100,9 @@ public class JwtUtil {
 
         if (csRole != null) {
             builder.claim("csRole", csRole);
+        }
+        if (userRole != null) {
+            builder.claim("role", userRole);
         }
 
         return builder.signWith(getSigningKey()).compact();

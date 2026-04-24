@@ -45,6 +45,7 @@ public class OrderService {
     private final NotificationService notificationService;
     private final ProximityService proximityService;
     private final DispatchService dispatchService;
+    private final VolunteerLocationService volunteerLocationService;
 
     @Value("${app.matching.max-distance-km:10}")
     private double maxDistanceKm;
@@ -69,7 +70,8 @@ public class OrderService {
                         EmergencyContactService emergencyContactService,
                         NotificationService notificationService,
                         ProximityService proximityService,
-                        DispatchService dispatchService) {
+                        DispatchService dispatchService,
+                        VolunteerLocationService volunteerLocationService) {
         this.runOrderRepository = runOrderRepository;
         this.userRepository = userRepository;
         this.eventPublisher = eventPublisher;
@@ -80,6 +82,7 @@ public class OrderService {
         this.notificationService = notificationService;
         this.proximityService = proximityService;
         this.dispatchService = dispatchService;
+        this.volunteerLocationService = volunteerLocationService;
     }
 
     /**
@@ -308,6 +311,9 @@ public class OrderService {
         // 清除邻近感知标记
         proximityService.clearProximityFlag(orderId);
 
+        // 清除志愿者位置数据（防止已完成订单的位置被继续读取）
+        volunteerLocationService.setOffline(volunteerId);
+
         statusLogService.logStatusChange(orderId, oldStatus, "COMPLETED", volunteerId, "服务完成");
 
         // 通知盲人用户
@@ -360,6 +366,7 @@ public class OrderService {
             statusLogService.logStatusChange(orderId, oldStatus, "CANCELLED", userId,
                     "取消方=" + order.getCancelledBy());
 
+            proximityService.clearProximityFlag(orderId);
             log.info("订单 {} 已取消，取消方={}，原状态={}", orderId, order.getCancelledBy(), status);
 
         } else {
@@ -379,6 +386,7 @@ public class OrderService {
                         "取消方=" + order.getCancelledBy());
                 // 通知盲人用户（志愿者取消服务）
                 notificationService.sendNotification(order.getBlindUser().getId(), "VOLUNTEER_CANCELLED", TargetRole.BLIND_USER, null);
+                proximityService.clearProximityFlag(orderId);
                 log.info("订单 {} 已取消（IN_PROGRESS），取消方=VOLUNTEER", orderId);
             } else {
                 // PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED → REMATCHING
@@ -406,6 +414,7 @@ public class OrderService {
                 // 重新推入匹配队列
                 eventPublisher.publishEvent(new OrderCreatedEvent(this, order));
 
+                proximityService.clearProximityFlag(orderId);
                 log.info("订单 {} 志愿者取消 → REMATCHING，原状态={}，第{}次重新匹配",
                         orderId, oldStatus, order.getRematchCount());
             }

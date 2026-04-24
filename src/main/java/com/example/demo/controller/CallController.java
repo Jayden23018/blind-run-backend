@@ -9,7 +9,7 @@ import com.example.demo.repository.RunOrderRepository;
 import com.example.demo.service.PrivateNumberService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
+import com.example.demo.util.SecurityUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -35,7 +35,7 @@ public class CallController {
     @PostMapping("/initiate")
     public ResponseEntity<?> initiateCall(@PathVariable Long orderId,
                                            @Valid @RequestBody CallInitiateRequest request) {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        Long userId = SecurityUtils.getCurrentUserId();
 
         RunOrder order = runOrderRepository.findByIdWithUsers(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("订单不存在"));

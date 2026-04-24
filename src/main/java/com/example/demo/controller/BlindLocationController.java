@@ -13,7 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.security.core.context.SecurityContextHolder;
+import com.example.demo.util.SecurityUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -54,7 +54,7 @@ public class BlindLocationController {
     /** 盲人上报实时位置 */
     @PostMapping("/location")
     public ResponseEntity<?> updateLocation(@Valid @RequestBody BlindLocationRequest request) {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        Long userId = SecurityUtils.getCurrentUserId();
         blindLocationService.updateLocation(userId, request);
         return ResponseEntity.ok(Map.of("success", true));
     }
@@ -67,7 +67,7 @@ public class BlindLocationController {
      */
     @GetMapping("/volunteer-location")
     public ResponseEntity<ApiResponse<?>> getVolunteerLocation() {
-        Long blindUserId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        Long blindUserId = SecurityUtils.getCurrentUserId();
 
         List<RunOrder> activeOrders = runOrderRepository
                 .findByBlindUserIdAndStatusInFetchVolunteer(blindUserId, ACTIVE_STATUSES);

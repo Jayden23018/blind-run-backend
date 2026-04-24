@@ -9,9 +9,10 @@ import com.example.demo.exception.RoleAlreadySetException;
 import com.example.demo.repository.BlindProfileRepository;
 import com.example.demo.repository.UserRepository;
 import com.example.demo.repository.VolunteerProfileRepository;
+import com.example.demo.util.JwtUtil;
+import com.example.demo.util.SecurityUtils;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -31,18 +32,21 @@ public class RoleController {
     private final UserRepository userRepository;
     private final BlindProfileRepository blindProfileRepository;
     private final VolunteerProfileRepository volunteerProfileRepository;
+    private final JwtUtil jwtUtil;
 
     public RoleController(UserRepository userRepository,
                           BlindProfileRepository blindProfileRepository,
-                          VolunteerProfileRepository volunteerProfileRepository) {
+                          VolunteerProfileRepository volunteerProfileRepository,
+                          JwtUtil jwtUtil) {
         this.userRepository = userRepository;
         this.blindProfileRepository = blindProfileRepository;
         this.volunteerProfileRepository = volunteerProfileRepository;
+        this.jwtUtil = jwtUtil;
     }
 
     @PostMapping("/role")
     public ResponseEntity<?> setRole(@Valid @RequestBody SetRoleRequest request) {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        Long userId = SecurityUtils.getCurrentUserId();
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("用户不存在"));
@@ -69,6 +73,9 @@ public class RoleController {
             }
         }
 
-        return ResponseEntity.ok(Map.of("success", true, "role", user.getRole().name()));
+        // 生成包含角色的新 token（客户端需要替换旧 token）
+        String newToken = jwtUtil.generateToken(userId, null, user.getRole().name());
+
+        return ResponseEntity.ok(Map.of("success", true, "role", user.getRole().name(), "token", newToken));
     }
 }

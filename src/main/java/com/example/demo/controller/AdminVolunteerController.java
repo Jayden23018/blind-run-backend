@@ -11,11 +11,14 @@ import com.example.demo.entity.TrainingQuizQuestion;
 import com.example.demo.repository.TrainingCourseRepository;
 import com.example.demo.repository.TrainingQuizQuestionRepository;
 import com.example.demo.service.AdminVolunteerService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -26,18 +29,22 @@ import java.util.List;
 @Slf4j
 @RestController
 @RequestMapping("/api/admin/volunteers")
+@Validated
 public class AdminVolunteerController {
 
     private final AdminVolunteerService adminVolunteerService;
     private final TrainingCourseRepository trainingCourseRepository;
     private final TrainingQuizQuestionRepository questionRepository;
+    private final ObjectMapper objectMapper;
 
     public AdminVolunteerController(AdminVolunteerService adminVolunteerService,
                                      TrainingCourseRepository trainingCourseRepository,
-                                     TrainingQuizQuestionRepository questionRepository) {
+                                     TrainingQuizQuestionRepository questionRepository,
+                                     ObjectMapper objectMapper) {
         this.adminVolunteerService = adminVolunteerService;
         this.trainingCourseRepository = trainingCourseRepository;
         this.questionRepository = questionRepository;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -117,7 +124,7 @@ public class AdminVolunteerController {
      * 更新培训课程
      */
     @PutMapping("/training/courses/{id}")
-    public ResponseEntity<?> updateCourse(@PathVariable Long id,
+    public ResponseEntity<?> updateCourse(@PathVariable @Min(1) Long id,
                                          @Valid @RequestBody TrainingCourseRequest request) {
         try {
             requireAdmin();
@@ -148,7 +155,7 @@ public class AdminVolunteerController {
      * 删除培训课程
      */
     @DeleteMapping("/training/courses/{id}")
-    public ResponseEntity<?> deleteCourse(@PathVariable Long id) {
+    public ResponseEntity<?> deleteCourse(@PathVariable @Min(1) Long id) {
         try {
             requireAdmin();
         } catch (RuntimeException e) {
@@ -190,7 +197,7 @@ public class AdminVolunteerController {
         question.setQuestionText(request.getQuestionText());
         question.setQuestionType(com.example.demo.entity.QuestionType.valueOf(request.getQuestionType()));
         try {
-            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            com.fasterxml.jackson.databind.ObjectMapper mapper = objectMapper;
             question.setOptions(mapper.writeValueAsString(request.getOptions()));
             question.setCorrectAnswer(mapper.writeValueAsString(request.getCorrectAnswer()));
         } catch (Exception e) {
@@ -207,7 +214,7 @@ public class AdminVolunteerController {
      * 更新题目
      */
     @PutMapping("/training/questions/{id}")
-    public ResponseEntity<?> updateQuestion(@PathVariable Long id,
+    public ResponseEntity<?> updateQuestion(@PathVariable @Min(1) Long id,
                                             @Valid @RequestBody QuizQuestionRequest request) {
         try {
             requireAdmin();
@@ -225,8 +232,8 @@ public class AdminVolunteerController {
         question.setQuestionText(request.getQuestionText());
         question.setQuestionType(com.example.demo.entity.QuestionType.valueOf(request.getQuestionType()));
         try {
-            question.setOptions(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(request.getOptions()));
-            question.setCorrectAnswer(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(request.getCorrectAnswer()));
+            question.setOptions(objectMapper.writeValueAsString(request.getOptions()));
+            question.setCorrectAnswer(objectMapper.writeValueAsString(request.getCorrectAnswer()));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(ApiResponse.error(400, "JSON序列化失败"));
         }
@@ -241,7 +248,7 @@ public class AdminVolunteerController {
      * 删除题目
      */
     @DeleteMapping("/training/questions/{id}")
-    public ResponseEntity<?> deleteQuestion(@PathVariable Long id) {
+    public ResponseEntity<?> deleteQuestion(@PathVariable @Min(1) Long id) {
         try {
             requireAdmin();
         } catch (RuntimeException e) {

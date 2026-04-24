@@ -4,9 +4,11 @@ import com.example.demo.dto.CreateReviewRequest;
 import com.example.demo.dto.ReviewResponse;
 import com.example.demo.service.ReviewService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
+import com.example.demo.util.SecurityUtils;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -20,6 +22,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/orders")
+@Validated
 public class ReviewController {
 
     private final ReviewService reviewService;
@@ -29,15 +32,15 @@ public class ReviewController {
     }
 
     @PostMapping("/{id}/review")
-    public ResponseEntity<?> createReview(@PathVariable Long id, @Valid @RequestBody CreateReviewRequest request) {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+    public ResponseEntity<?> createReview(@PathVariable @Min(1) Long id, @Valid @RequestBody CreateReviewRequest request) {
+        Long userId = SecurityUtils.getCurrentUserId();
         reviewService.createReview(id, userId, request.getRating(), request.getComment());
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("success", true));
     }
 
     @GetMapping("/{id}/reviews")
-    public ResponseEntity<?> getReview(@PathVariable Long id) {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+    public ResponseEntity<?> getReview(@PathVariable @Min(1) Long id) {
+        Long userId = SecurityUtils.getCurrentUserId();
         ReviewResponse review = reviewService.getReview(id, userId);
         Map<String, Object> result = new HashMap<>();
         result.put("data", review);
