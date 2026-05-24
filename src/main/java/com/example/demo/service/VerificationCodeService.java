@@ -7,6 +7,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
@@ -33,6 +35,10 @@ public class VerificationCodeService {
     @Value("${sms.code.max-attempts:5}")
     private int maxAttempts;
 
+    /** 测试号码白名单 —— 这些号码验证码固定为 000000，不发真实短信 */
+    @Value("${sms.test-phones:}")
+    private List<String> testPhones;
+
     public VerificationCodeService(StringRedisTemplate redisTemplate, ObjectMapper objectMapper) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
@@ -41,11 +47,24 @@ public class VerificationCodeService {
     /** 验证码信息 */
     private record CodeEntry(String code, int attempts) {}
 
+    /** 是否为测试号码（验证码固定 000000，跳过短信发送） */
+    public boolean isTestPhone(String phone) {
+        return testPhones != null && testPhones.contains(phone);
+    }
+
     /** 生成验证码并存储到 Redis */
     public String generateAndStoreCode(String phone) {
-        int min = (int) Math.pow(10, codeLength - 1);
-        int max = (int) Math.pow(10, codeLength);
-        String code = String.valueOf(ThreadLocalRandom.current().nextInt(min, max));
+        // 测试号码固定使用 000000，其他号码随机生成
+        String code;
+        if (isTestPhone(phone)) {
+            code = "000000";
+            log.info("测试号码 {}，验证码固定为 000000（不发短信）", phone);
+        } else {
+            int min = (int) Math.pow(10, codeLength - 1);
+            int max = (int) Math.pow(10, codeLength);
+            code = String.valueOf(ThreadLocalRandom.current().nextInt(min, max));
+            log.info("为手机号 {} 生成验证码，有效期 {} 分钟", phone, ttlMinutes);
+        }
 
         try {
             String json = objectMapper.writeValueAsString(new CodeEntry(code, 0));
@@ -54,7 +73,6 @@ public class VerificationCodeService {
             throw new RuntimeException("验证码存储失败", e);
         }
 
-        log.info("为手机号 {} 生成验证码，有效期 {} 分钟", phone, ttlMinutes);
         return code;
     }
 
