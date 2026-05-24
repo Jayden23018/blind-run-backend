@@ -75,22 +75,67 @@ public class NotificationService {
                 }
             }
 
-            // 构建 WebSocket 消息
-            Map<String, Object> msg = new LinkedHashMap<>();
-            msg.put("type", "APP_NOTIFICATION");
+            Map<String, Object> msg = buildEnvelope("APP_NOTIFICATION");
             msg.put("body", text);
             msg.put("ttsText", ttsText);
             msg.put("priority", template.getPriority().name());
-            msg.put("timestamp", LocalDateTime.now().toString());
 
-            String json = objectMapper.writeValueAsString(msg);
-            sessionRegistry.sendToUser(userId, json);
+            sessionRegistry.sendToUser(userId, objectMapper.writeValueAsString(msg));
 
             logNotification(null, userId, NotificationChannel.WEBSOCKET, text);
             return text;
         } catch (Exception e) {
             log.error("发送模板通知失败: eventType={}, userId={}, error={}", eventType, userId, e.getMessage());
             return null;
+        }
+    }
+
+    /**
+     * 向志愿者推送串行派单通知（NEW_ORDER）
+     */
+    public void sendDispatchNotification(Long volunteerId, RunOrder order,
+                                          double distanceKm, int timeoutSeconds) {
+        try {
+            Map<String, Object> msg = buildEnvelope("NEW_ORDER");
+            msg.put("orderId", order.getId());
+            msg.put("startAddress", order.getStartAddress());
+            msg.put("distanceKm", Math.round(distanceKm * 10.0) / 10.0);
+            msg.put("plannedStart", order.getPlannedStartTime().toString());
+            msg.put("plannedEnd", order.getPlannedEndTime().toString());
+            msg.put("dispatchTimeoutSeconds", timeoutSeconds);
+            msg.put("priority", NotificationPriority.HIGH.name());
+            if (order.getPacePreference() != null) {
+                msg.put("pacePreference", order.getPacePreference().name());
+            }
+            if (Boolean.TRUE.equals(order.getHasGuideDogThisRun())) {
+                msg.put("hasGuideDog", true);
+            }
+            if (order.getSpecialNotes() != null && !order.getSpecialNotes().isBlank()) {
+                msg.put("specialNotes", order.getSpecialNotes());
+            }
+            sessionRegistry.sendToUser(volunteerId, objectMapper.writeValueAsString(msg));
+            log.info("已向志愿者 {} 推送订单 {} 通知", volunteerId, order.getId());
+        } catch (Exception e) {
+            log.error("推送订单 {} 通知给志愿者 {} 失败: {}", order.getId(), volunteerId, e.getMessage());
+        }
+    }
+
+    /**
+     * 向盲人推送志愿者实时位置（VOLUNTEER_LOCATION_UPDATE）
+     * timestamp 使用 epoch ms 以保持与前端现有协议一致
+     */
+    public void sendVolunteerLocationUpdate(Long blindUserId, Long orderId,
+                                             double lat, double lng) {
+        try {
+            Map<String, Object> msg = new LinkedHashMap<>();
+            msg.put("type", "VOLUNTEER_LOCATION_UPDATE");
+            msg.put("orderId", orderId);
+            msg.put("lat", lat);
+            msg.put("lng", lng);
+            msg.put("timestamp", System.currentTimeMillis());
+            sessionRegistry.sendToUser(blindUserId, objectMapper.writeValueAsString(msg));
+        } catch (Exception e) {
+            log.warn("转发志愿者位置给盲人 {} 失败: {}", blindUserId, e.getMessage());
         }
     }
 
@@ -112,30 +157,20 @@ public class NotificationService {
     public void sendOrderStatusChange(Long orderId, String fromStatus, String toStatus,
                                        Long blindUserId, Long volunteerId, String message) {
         try {
-            Map<String, Object> msg = new LinkedHashMap<>();
-            msg.put("type", "ORDER_STATUS_CHANGED");
+            Map<String, Object> msg = buildEnvelope("ORDER_STATUS_CHANGED");
             msg.put("orderId", orderId);
             msg.put("fromStatus", fromStatus);
             msg.put("toStatus", toStatus);
             msg.put("message", message);
-            msg.put("ttsText", message); // 默认使用 message 作为 ttsText
-            msg.put("priority", NotificationPriority.NORMAL.name()); // 默认优先级
-            msg.put("timestamp", LocalDateTime.now().toString());
+            msg.put("ttsText", message);
+            msg.put("priority", NotificationPriority.NORMAL.name());
 
             String json = objectMapper.writeValueAsString(msg);
+            if (blindUserId != null) sessionRegistry.sendToUser(blindUserId, json);
+            if (volunteerId != null) sessionRegistry.sendToUser(volunteerId, json);
 
-            if (blindUserId != null) {
-                sessionRegistry.sendToUser(blindUserId, json);
-            }
-            if (volunteerId != null) {
-                sessionRegistry.sendToUser(volunteerId, json);
-            }
-
-            // 记录通知日志
             logNotification(orderId, blindUserId, NotificationChannel.WEBSOCKET, message);
-            if (volunteerId != null) {
-                logNotification(orderId, volunteerId, NotificationChannel.WEBSOCKET, message);
-            }
+            if (volunteerId != null) logNotification(orderId, volunteerId, NotificationChannel.WEBSOCKET, message);
         } catch (Exception e) {
             log.error("发送订单状态变更通知失败: {}", e.getMessage());
         }
@@ -148,29 +183,20 @@ public class NotificationService {
                                        Long blindUserId, Long volunteerId, String message,
                                        String ttsText, NotificationPriority priority) {
         try {
-            Map<String, Object> msg = new LinkedHashMap<>();
-            msg.put("type", "ORDER_STATUS_CHANGED");
+            Map<String, Object> msg = buildEnvelope("ORDER_STATUS_CHANGED");
             msg.put("orderId", orderId);
             msg.put("fromStatus", fromStatus);
             msg.put("toStatus", toStatus);
             msg.put("message", message);
             msg.put("ttsText", ttsText);
             msg.put("priority", priority != null ? priority.name() : NotificationPriority.NORMAL.name());
-            msg.put("timestamp", LocalDateTime.now().toString());
 
             String json = objectMapper.writeValueAsString(msg);
-
-            if (blindUserId != null) {
-                sessionRegistry.sendToUser(blindUserId, json);
-            }
-            if (volunteerId != null) {
-                sessionRegistry.sendToUser(volunteerId, json);
-            }
+            if (blindUserId != null) sessionRegistry.sendToUser(blindUserId, json);
+            if (volunteerId != null) sessionRegistry.sendToUser(volunteerId, json);
 
             logNotification(orderId, blindUserId, NotificationChannel.WEBSOCKET, message);
-            if (volunteerId != null) {
-                logNotification(orderId, volunteerId, NotificationChannel.WEBSOCKET, message);
-            }
+            if (volunteerId != null) logNotification(orderId, volunteerId, NotificationChannel.WEBSOCKET, message);
         } catch (Exception e) {
             log.error("发送订单状态变更通知失败: {}", e.getMessage());
         }
@@ -181,16 +207,12 @@ public class NotificationService {
      */
     public void sendAppNotification(Long userId, String title, String body) {
         try {
-            Map<String, Object> msg = new LinkedHashMap<>();
-            msg.put("type", "APP_NOTIFICATION");
+            Map<String, Object> msg = buildEnvelope("APP_NOTIFICATION");
             msg.put("title", title);
             msg.put("body", body);
             msg.put("priority", NotificationPriority.NORMAL.name());
-            msg.put("timestamp", LocalDateTime.now().toString());
 
-            String json = objectMapper.writeValueAsString(msg);
-            sessionRegistry.sendToUser(userId, json);
-
+            sessionRegistry.sendToUser(userId, objectMapper.writeValueAsString(msg));
             logNotification(null, userId, NotificationChannel.WEBSOCKET, body);
         } catch (Exception e) {
             log.error("发送 App 通知失败: {}", e.getMessage());
@@ -212,8 +234,7 @@ public class NotificationService {
             msg.put("priority", NotificationPriority.HIGH.name());
             msg.put("triggeredAt", event.getTriggeredAt().toString());
 
-            String json = objectMapper.writeValueAsString(msg);
-            sessionRegistry.sendToCs(json);
+            sessionRegistry.sendToCs(objectMapper.writeValueAsString(msg));
         } catch (Exception e) {
             log.error("发送紧急事件告警失败: {}", e.getMessage());
         }
@@ -224,8 +245,7 @@ public class NotificationService {
      */
     public void sendEmergencyVolunteerAlert(EmergencyEvent event, Long volunteerId) {
         try {
-            Map<String, Object> msg = new LinkedHashMap<>();
-            msg.put("type", "EMERGENCY_VOLUNTEER_ALERT");
+            Map<String, Object> msg = buildEnvelope("EMERGENCY_VOLUNTEER_ALERT");
             msg.put("eventId", event.getId());
             msg.put("orderId", event.getOrderId());
             msg.put("userId", event.getUserId());
@@ -234,13 +254,9 @@ public class NotificationService {
             msg.put("priority", NotificationPriority.HIGH.name());
             msg.put("gpsLat", event.getGpsLat());
             msg.put("gpsLng", event.getGpsLng());
-            msg.put("timestamp", LocalDateTime.now().toString());
 
-            String json = objectMapper.writeValueAsString(msg);
-            sessionRegistry.sendToUser(volunteerId, json);
-
-            logNotification(event.getOrderId(), volunteerId, NotificationChannel.WEBSOCKET,
-                    "紧急事件志愿者告警");
+            sessionRegistry.sendToUser(volunteerId, objectMapper.writeValueAsString(msg));
+            logNotification(event.getOrderId(), volunteerId, NotificationChannel.WEBSOCKET, "紧急事件志愿者告警");
         } catch (Exception e) {
             log.error("发送紧急事件志愿者告警失败: {}", e.getMessage());
         }
@@ -251,31 +267,25 @@ public class NotificationService {
      */
     public void sendEmergencyResolvedByVolunteer(EmergencyEvent event, boolean needHelp) {
         try {
-            // 通知客服
-            Map<String, Object> csMsg = new LinkedHashMap<>();
-            csMsg.put("type", "EMERGENCY_RESOLVED_BY_VOLUNTEER");
+            Map<String, Object> csMsg = buildEnvelope("EMERGENCY_RESOLVED_BY_VOLUNTEER");
             csMsg.put("eventId", event.getId());
             csMsg.put("orderId", event.getOrderId());
             csMsg.put("resolvedBy", "VOLUNTEER");
             csMsg.put("needHelp", needHelp);
             csMsg.put("priority", NotificationPriority.HIGH.name());
-            csMsg.put("timestamp", LocalDateTime.now().toString());
             sessionRegistry.sendToCs(objectMapper.writeValueAsString(csMsg));
 
-            // 通知盲人
-            Map<String, Object> blindMsg = new LinkedHashMap<>();
-            blindMsg.put("type", "EMERGENCY_RESOLVED_BY_VOLUNTEER");
-            blindMsg.put("eventId", event.getId());
             String displayText = needHelp
                     ? "志愿者已确认您需要帮助，正在通知紧急联系人"
                     : "志愿者确认这是一次误触，紧急事件已解除";
             String tts = needHelp
                     ? "志愿者确认你需要帮助，正在通知紧急联系人"
                     : "这是一次误触，紧急事件已解除";
+            Map<String, Object> blindMsg = buildEnvelope("EMERGENCY_RESOLVED_BY_VOLUNTEER");
+            blindMsg.put("eventId", event.getId());
             blindMsg.put("message", displayText);
             blindMsg.put("ttsText", tts);
             blindMsg.put("priority", NotificationPriority.HIGH.name());
-            blindMsg.put("timestamp", LocalDateTime.now().toString());
             sessionRegistry.sendToUser(event.getUserId(), objectMapper.writeValueAsString(blindMsg));
         } catch (Exception e) {
             log.error("发送志愿者解决通知失败: {}", e.getMessage());
@@ -288,12 +298,8 @@ public class NotificationService {
     public void sendProximityAlert(Long orderId, Long blindUserId, Long volunteerId,
                                     double distanceMeters) {
         try {
-            // 通知盲人
             sendNotification(blindUserId, "PROXIMITY_ALERT", TargetRole.BLIND_USER, null);
-
-            // 通知志愿者
             sendNotification(volunteerId, "PROXIMITY_ALERT", TargetRole.VOLUNTEER, null);
-
             logNotification(orderId, blindUserId, NotificationChannel.WEBSOCKET, "邻近感知通知");
             logNotification(orderId, volunteerId, NotificationChannel.WEBSOCKET, "邻近感知通知");
         } catch (Exception e) {
@@ -306,16 +312,13 @@ public class NotificationService {
      */
     public void sendEmergencyContactNotified(Long userId, Long eventId, String contactName) {
         try {
-            Map<String, Object> msg = new LinkedHashMap<>();
-            msg.put("type", "EMERGENCY_CONTACT_NOTIFIED");
+            Map<String, Object> msg = buildEnvelope("EMERGENCY_CONTACT_NOTIFIED");
             msg.put("eventId", eventId);
             msg.put("message", "已通过短信通知您的联系人" + contactName + "，请保持冷静");
             msg.put("ttsText", "已通知你的联系人" + contactName + "，请保持冷静");
             msg.put("priority", NotificationPriority.HIGH.name());
-            msg.put("timestamp", LocalDateTime.now().toString());
 
-            String json = objectMapper.writeValueAsString(msg);
-            sessionRegistry.sendToUser(userId, json);
+            sessionRegistry.sendToUser(userId, objectMapper.writeValueAsString(msg));
         } catch (Exception e) {
             log.error("发送联系人通知反馈失败: {}", e.getMessage());
         }
@@ -369,6 +372,14 @@ public class NotificationService {
     }
 
     // === 私有方法 ===
+
+    /** 构建消息信封：预填 type 和 ISO-8601 timestamp */
+    private Map<String, Object> buildEnvelope(String type) {
+        Map<String, Object> msg = new LinkedHashMap<>();
+        msg.put("type", type);
+        msg.put("timestamp", LocalDateTime.now().toString());
+        return msg;
+    }
 
     private void logNotification(Long orderId, Long userId, NotificationChannel channel, String content) {
         try {

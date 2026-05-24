@@ -1,18 +1,28 @@
 package com.example.demo.controller;
 
+import com.example.demo.dto.AvailableOrderResponse;
 import com.example.demo.dto.CreateOrderRequest;
 import com.example.demo.dto.DispatchRespondRequest;
 import com.example.demo.dto.OrderDetailResponse;
 import com.example.demo.dto.OrderResponse;
+import com.example.demo.dto.OrderStatusLogResponse;
 import com.example.demo.entity.BlindProfile;
 import com.example.demo.entity.OrderStatus;
 import com.example.demo.entity.RunOrder;
 import com.example.demo.entity.User;
+import com.example.demo.exception.OrderPermissionException;
 import com.example.demo.repository.BlindProfileRepository;
 import com.example.demo.repository.RunOrderRepository;
 import com.example.demo.repository.UserRepository;
-import com.example.demo.service.OrderService;
+import com.example.demo.service.DispatchService;
+import com.example.demo.service.OrderCreationService;
+import com.example.demo.service.OrderLifecycleService;
+import com.example.demo.service.OrderQueryService;
+import com.example.demo.service.OrderStatusLogService;
 import com.example.demo.service.VolunteerLocationService;
+
+import com.example.demo.util.PhoneMaskUtils;
+import com.example.demo.util.SecurityUtils;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -22,42 +32,59 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import com.example.demo.util.SecurityUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
-import com.example.demo.util.PhoneMaskUtils;
-
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 订单控制器 —— 处理订单相关的 HTTP 请求
  *
- * POST   /api/orders              → 盲人创建订单
- * POST   /api/orders/{id}/accept  → 志愿者接单
- * POST   /api/orders/{id}/reject  → 志愿者拒单
- * POST   /api/orders/{id}/finish  → 志愿者结束服务
- * POST   /api/orders/{id}/cancel  → 取消订单
- * GET    /api/orders/{id}         → 查询订单详情
- * GET    /api/orders/mine         → 查询我的订单列表
+ * POST   /api/orders                  → 盲人创建订单
+ * POST   /api/orders/{id}/accept      → 志愿者接单
+ * POST   /api/orders/{id}/reject      → 志愿者拒单
+ * POST   /api/orders/{id}/respond     → 志愿者响应派单（串行派单专用）
+ * POST   /api/orders/{id}/en-route    → 志愿者确认出发
+ * POST   /api/orders/{id}/arrived     → 志愿者确认到达
+ * POST   /api/orders/{id}/finish      → 志愿者结束服务
+ * POST   /api/orders/{id}/cancel      → 取消订单
+ * PUT    /api/orders/{id}/keep-waiting → 盲人继续等待
+ * GET    /api/orders/available        → 附近可接订单列表
+ * GET    /api/orders/{id}             → 查询订单详情
+ * GET    /api/orders/mine             → 查询我的订单列表
+ * GET    /api/orders/{id}/status-logs → 获取状态变更历史
  */
 @RestController
 @RequestMapping("/api/orders")
 @Validated
 public class OrderController {
 
-    private final OrderService orderService;
+    private final OrderCreationService orderCreationService;
+    private final OrderLifecycleService orderLifecycleService;
+    private final OrderQueryService orderQueryService;
+    private final DispatchService dispatchService;
+    private final OrderStatusLogService statusLogService;
     private final RunOrderRepository runOrderRepository;
     private final VolunteerLocationService volunteerLocationService;
     private final UserRepository userRepository;
     private final BlindProfileRepository blindProfileRepository;
 
-    public OrderController(OrderService orderService, RunOrderRepository runOrderRepository,
+    public OrderController(OrderCreationService orderCreationService,
+                           OrderLifecycleService orderLifecycleService,
+                           OrderQueryService orderQueryService,
+                           DispatchService dispatchService,
+                           OrderStatusLogService statusLogService,
+                           RunOrderRepository runOrderRepository,
                            VolunteerLocationService volunteerLocationService,
                            UserRepository userRepository,
                            BlindProfileRepository blindProfileRepository) {
-        this.orderService = orderService;
+        this.orderCreationService = orderCreationService;
+        this.orderLifecycleService = orderLifecycleService;
+        this.orderQueryService = orderQueryService;
+        this.dispatchService = dispatchService;
+        this.statusLogService = statusLogService;
         this.runOrderRepository = runOrderRepository;
         this.volunteerLocationService = volunteerLocationService;
         this.userRepository = userRepository;
@@ -67,47 +94,61 @@ public class OrderController {
     @PostMapping
     public ResponseEntity<OrderResponse> createOrder(@Valid @RequestBody CreateOrderRequest request) {
         Long userId = SecurityUtils.getCurrentUserId();
-        OrderResponse response = orderService.createOrder(userId, request);
+        OrderResponse response = orderCreationService.createOrder(userId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PostMapping("/{id}/accept")
     public ResponseEntity<?> acceptOrder(@PathVariable @Min(1) Long id) {
         Long userId = SecurityUtils.getCurrentUserId();
-        orderService.acceptOrderWithRetry(id, userId);
+        orderLifecycleService.acceptOrderWithRetry(id, userId);
         return ResponseEntity.ok(Map.of("success", true, "orderId", id));
     }
 
     @PostMapping("/{id}/reject")
     public ResponseEntity<?> rejectOrder(@PathVariable @Min(1) Long id) {
         Long userId = SecurityUtils.getCurrentUserId();
-        orderService.rejectOrder(id, userId);
+        orderLifecycleService.rejectOrder(id, userId);
         return ResponseEntity.ok(Map.of("success", true));
     }
 
-    /**
-     * 志愿者响应派单（接单或跳过）—— 串行派单专用
-     */
+    /** 志愿者响应派单（接单或跳过）—— 串行派单专用 */
     @PostMapping("/{id}/respond")
     public ResponseEntity<?> respondToDispatch(
             @PathVariable @Min(1) Long id,
             @Valid @RequestBody DispatchRespondRequest request) {
         Long userId = SecurityUtils.getCurrentUserId();
-        orderService.respondToDispatchOrder(id, userId, request.action());
+        dispatchService.handleVolunteerResponse(id, userId, request.action());
+        return ResponseEntity.ok(Map.of("success", true, "orderId", id));
+    }
+
+    /** 志愿者确认出发 */
+    @PostMapping("/{id}/en-route")
+    public ResponseEntity<?> driverEnRoute(@PathVariable @Min(1) Long id) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        orderLifecycleService.driverEnRoute(id, userId);
+        return ResponseEntity.ok(Map.of("success", true, "orderId", id));
+    }
+
+    /** 志愿者确认到达 */
+    @PostMapping("/{id}/arrived")
+    public ResponseEntity<?> driverArrived(@PathVariable @Min(1) Long id) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        orderLifecycleService.driverArrived(id, userId);
         return ResponseEntity.ok(Map.of("success", true, "orderId", id));
     }
 
     @PostMapping("/{id}/finish")
     public ResponseEntity<?> finishOrder(@PathVariable @Min(1) Long id) {
         Long userId = SecurityUtils.getCurrentUserId();
-        orderService.finishOrder(id, userId);
+        orderLifecycleService.finishOrder(id, userId);
         return ResponseEntity.ok(Map.of("success", true, "orderId", id));
     }
 
     @PostMapping("/{id}/cancel")
     public ResponseEntity<?> cancelOrder(@PathVariable @Min(1) Long id) {
         Long userId = SecurityUtils.getCurrentUserId();
-        orderService.cancelOrder(id, userId);
+        orderLifecycleService.cancelOrder(id, userId);
         return ResponseEntity.ok(Map.of("success", true));
     }
 
@@ -115,7 +156,7 @@ public class OrderController {
     @PutMapping("/{id}/keep-waiting")
     public ResponseEntity<?> keepWaiting(@PathVariable @Min(1) Long id) {
         Long userId = SecurityUtils.getCurrentUserId();
-        orderService.keepWaiting(id, userId);
+        orderLifecycleService.keepWaiting(id, userId);
         return ResponseEntity.ok(Map.of("success", true));
     }
 
@@ -130,14 +171,14 @@ public class OrderController {
 
         double lat = ((Number) loc.get("lat")).doubleValue();
         double lng = ((Number) loc.get("lng")).doubleValue();
-        List<OrderService.AvailableOrderResponse> orders = orderService.getAvailableOrders(userId, lat, lng);
+        List<AvailableOrderResponse> orders = orderQueryService.getAvailableOrders(userId, lat, lng);
         return ResponseEntity.ok(orders);
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<OrderDetailResponse> getOrder(@PathVariable @Min(1) Long id) {
         Long userId = SecurityUtils.getCurrentUserId();
-        RunOrder order = orderService.getOrder(id, userId);
+        RunOrder order = orderQueryService.getOrder(id, userId);
         return ResponseEntity.ok(toDetailResponse(order));
     }
 
@@ -150,7 +191,6 @@ public class OrderController {
 
         Long userId = SecurityUtils.getCurrentUserId();
 
-        // 不传 role 时，自动从用户信息获取
         if (role == null || role.isBlank()) {
             User user = userRepository.findById(userId).orElseThrow();
             role = user.getRole().name();
@@ -179,12 +219,40 @@ public class OrderController {
             throw new IllegalArgumentException("无效的角色参数，仅支持 BLIND 或 VOLUNTEER");
         }
 
-        // 批量加载 BlindProfile，避免 N+1 查询
         Map<Long, BlindProfile> profileMap = batchLoadProfiles(orders);
         return ResponseEntity.ok(orders.map(o -> toDetailResponse(o, profileMap)));
     }
 
-    /** 安全解析订单状态枚举，无效值返回中文错误 */
+    /** 获取状态变更历史 */
+    @GetMapping("/{id}/status-logs")
+    public ResponseEntity<List<OrderStatusLogResponse>> getStatusLogs(@PathVariable @Min(1) Long id) {
+        Long userId = SecurityUtils.getCurrentUserId();
+
+        RunOrder order = runOrderRepository.findByIdWithUsers(id)
+                .orElseThrow(() -> new IllegalArgumentException("订单不存在"));
+        boolean isBlind = order.getBlindUser().getId().equals(userId);
+        boolean isVolunteer = order.getVolunteer() != null && order.getVolunteer().getId().equals(userId);
+        if (!isBlind && !isVolunteer) {
+            throw new OrderPermissionException("您无权查看此订单");
+        }
+
+        List<OrderStatusLogResponse> logs = statusLogService.getStatusLogs(id).stream()
+                .map(log -> {
+                    OrderStatusLogResponse resp = new OrderStatusLogResponse();
+                    resp.setId(log.getId());
+                    resp.setOrderId(log.getOrderId());
+                    resp.setFromStatus(log.getFromStatus());
+                    resp.setToStatus(log.getToStatus());
+                    resp.setChangedBy(log.getChangedBy());
+                    resp.setChangedAt(log.getChangedAt());
+                    resp.setRemark(log.getRemark());
+                    return resp;
+                })
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(logs);
+    }
+
     private OrderStatus parseOrderStatus(String status) {
         try {
             return OrderStatus.valueOf(status);
@@ -193,7 +261,6 @@ public class OrderController {
         }
     }
 
-    /** 批量加载页面中所有订单涉及的 BlindProfile */
     private Map<Long, BlindProfile> batchLoadProfiles(Page<RunOrder> orders) {
         List<Long> blindUserIds = orders.getContent().stream()
                 .map(o -> o.getBlindUser().getId())
@@ -206,7 +273,6 @@ public class OrderController {
                 .collect(java.util.stream.Collectors.toMap(bp -> bp.getUser().getId(), bp -> bp));
     }
 
-    /** 将 RunOrder 实体转换为 OrderDetailResponse DTO（列表查询用，使用预加载的 profileMap） */
     private OrderDetailResponse toDetailResponse(RunOrder order, Map<Long, BlindProfile> profileMap) {
         String volunteerPhone = order.getVolunteer() != null ? PhoneMaskUtils.mask(order.getVolunteer().getPhone()) : null;
         BlindProfile blindProfile = order.getBlindUser() != null ? profileMap.get(order.getBlindUser().getId()) : null;
@@ -231,7 +297,6 @@ public class OrderController {
         );
     }
 
-    /** 将 RunOrder 实体转换为 OrderDetailResponse DTO（单条查询用） */
     private OrderDetailResponse toDetailResponse(RunOrder order) {
         String volunteerPhone = order.getVolunteer() != null ? PhoneMaskUtils.mask(order.getVolunteer().getPhone()) : null;
         BlindProfile blindProfile = order.getBlindUser() != null

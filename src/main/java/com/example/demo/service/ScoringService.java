@@ -24,12 +24,12 @@ import java.util.*;
 @Service
 public class ScoringService {
 
-    // 权重常量
+    // 权重常量（总分 100）
     private static final double WEIGHT_DISTANCE = 40.0;
     private static final double WEIGHT_TIME = 25.0;
     private static final double WEIGHT_RATING = 20.0;
-    private static final double WEIGHT_ACCEPTANCE = 10.0;
-    private static final double WEIGHT_PACE = 5.0;
+    private static final double WEIGHT_ACCEPTANCE = 5.0;
+    private static final double WEIGHT_PACE = 10.0;
 
     // 无数据时的默认分值（归一化 0-1）
     private static final double DEFAULT_TIME_SCORE = 0.5;
@@ -140,10 +140,10 @@ public class ScoringService {
     }
 
     /**
-     * 距离得分（归一化 0-1）：距离越近得分越高，线性递减
+     * 距离得分（归一化 0-1）：平方根衰减，近距离分差大、远距离分差小
      */
     double calcDistanceScore(double distanceKm, double thresholdKm) {
-        return Math.max(0, 1 - distanceKm / thresholdKm);
+        return Math.max(0, 1 - Math.sqrt(distanceKm / thresholdKm));
     }
 
     /**

@@ -29,52 +29,35 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * OrderService 单元测试 —— 验证订单创建和接单的业务逻辑
+ * 订单创建与生命周期单元测试
  */
 @ExtendWith(MockitoExtension.class)
 class OrderServiceTest {
 
-    @Mock
-    private RunOrderRepository runOrderRepository;
+    @Mock private RunOrderRepository runOrderRepository;
+    @Mock private UserRepository userRepository;
+    @Mock private ApplicationEventPublisher eventPublisher;
+    @Mock private BlindProfileRepository blindProfileRepository;
+    @Mock private VolunteerProfileRepository volunteerProfileRepository;
+    @Mock private OrderStatusLogService statusLogService;
+    @Mock private EmergencyContactService emergencyContactService;
+    @Mock private NotificationService notificationService;
+    @Mock private ProximityService proximityService;
+    @Mock private VolunteerLocationService volunteerLocationService;
 
-    @Mock
-    private UserRepository userRepository;
-
-    @Mock
-    private ApplicationEventPublisher eventPublisher;
-
-    @Mock
-    private BlindProfileRepository blindProfileRepository;
-
-    @Mock
-    private VolunteerProfileRepository volunteerProfileRepository;
-
-    @Mock
-    private OrderStatusLogService statusLogService;
-
-    @Mock
-    private EmergencyContactService emergencyContactService;
-
-    @Mock
-    private NotificationService notificationService;
-
-    @Mock
-    private ProximityService proximityService;
-
-    @Mock
-    private DispatchService dispatchService;
-
-    @Mock
-    private VolunteerLocationService volunteerLocationService;
-
-    private OrderService orderService;
+    private OrderCreationService orderCreationService;
+    private OrderLifecycleService orderLifecycleService;
 
     @BeforeEach
     void setUp() {
-        orderService = new OrderService(runOrderRepository, userRepository, eventPublisher,
-                blindProfileRepository, volunteerProfileRepository, statusLogService,
-                emergencyContactService, notificationService, proximityService, dispatchService,
-                volunteerLocationService);
+        orderCreationService = new OrderCreationService(
+                runOrderRepository, userRepository, eventPublisher,
+                blindProfileRepository, emergencyContactService, statusLogService);
+
+        orderLifecycleService = new OrderLifecycleService(
+                runOrderRepository, userRepository, eventPublisher,
+                volunteerProfileRepository, statusLogService,
+                notificationService, proximityService, volunteerLocationService);
     }
 
     /** 正常创建订单 */
@@ -87,8 +70,7 @@ class OrderServiceTest {
         request.setPlannedStartTime(LocalDateTime.now().plusHours(1));
         request.setPlannedEndTime(LocalDateTime.now().plusHours(2));
 
-        when(runOrderRepository.existsByBlindUserIdAndStatusIn(anyLong(), anyList()))
-                .thenReturn(false);
+        when(runOrderRepository.existsByBlindUserIdAndStatusIn(anyLong(), anyList())).thenReturn(false);
         when(emergencyContactService.hasContacts(anyLong())).thenReturn(true);
         when(runOrderRepository.save(any(RunOrder.class))).thenAnswer(invocation -> {
             RunOrder order = invocation.getArgument(0);
@@ -97,7 +79,7 @@ class OrderServiceTest {
         });
         when(userRepository.getReferenceById(1L)).thenReturn(new User());
 
-        OrderResponse response = orderService.createOrder(1L, request);
+        OrderResponse response = orderCreationService.createOrder(1L, request);
 
         assertEquals(1001L, response.getId());
         assertEquals(OrderStatus.PENDING_MATCH, response.getStatus());
@@ -114,10 +96,9 @@ class OrderServiceTest {
         request.setPlannedStartTime(LocalDateTime.now().plusHours(1));
         request.setPlannedEndTime(LocalDateTime.now().plusHours(2));
 
-        when(runOrderRepository.existsByBlindUserIdAndStatusIn(anyLong(), anyList()))
-                .thenReturn(true);
+        when(runOrderRepository.existsByBlindUserIdAndStatusIn(anyLong(), anyList())).thenReturn(true);
 
-        assertThrows(DuplicateOrderException.class, () -> orderService.createOrder(1L, request));
+        assertThrows(DuplicateOrderException.class, () -> orderCreationService.createOrder(1L, request));
     }
 
     /** 结束时间早于开始时间 */
@@ -130,7 +111,7 @@ class OrderServiceTest {
         request.setPlannedStartTime(LocalDateTime.now().plusHours(2));
         request.setPlannedEndTime(LocalDateTime.now().plusHours(1));
 
-        assertThrows(IllegalArgumentException.class, () -> orderService.createOrder(1L, request));
+        assertThrows(IllegalArgumentException.class, () -> orderCreationService.createOrder(1L, request));
     }
 
     /** 开始时间早于当前时间 */
@@ -143,7 +124,7 @@ class OrderServiceTest {
         request.setPlannedStartTime(LocalDateTime.now().minusHours(1));
         request.setPlannedEndTime(LocalDateTime.now().plusHours(1));
 
-        assertThrows(IllegalArgumentException.class, () -> orderService.createOrder(1L, request));
+        assertThrows(IllegalArgumentException.class, () -> orderCreationService.createOrder(1L, request));
     }
 
     /** 接单成功 → IN_PROGRESS */
@@ -157,7 +138,6 @@ class OrderServiceTest {
         order.setStatus(OrderStatus.PENDING_ACCEPT);
         order.setBlindUser(blindUser);
 
-        // 模拟已认证的志愿者
         com.example.demo.entity.VolunteerProfile profile = new com.example.demo.entity.VolunteerProfile();
         profile.setVerified(true);
         profile.setRegistrationStep(com.example.demo.entity.RegistrationStep.STEP_4_COMPLETED);
@@ -167,7 +147,7 @@ class OrderServiceTest {
         when(runOrderRepository.save(any(RunOrder.class))).thenReturn(order);
         when(userRepository.getReferenceById(2L)).thenReturn(new User());
 
-        orderService.acceptOrder(1001L, 2L);
+        orderLifecycleService.acceptOrder(1001L, 2L);
 
         assertEquals(OrderStatus.IN_PROGRESS, order.getStatus());
         assertNotNull(order.getAcceptedAt());
@@ -187,7 +167,7 @@ class OrderServiceTest {
 
         when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
 
-        assertThrows(OrderStatusException.class, () -> orderService.acceptOrder(1001L, 2L));
+        assertThrows(OrderStatusException.class, () -> orderLifecycleService.acceptOrder(1001L, 2L));
     }
 
     /** 接单失败：订单不存在 */
@@ -200,7 +180,7 @@ class OrderServiceTest {
 
         when(runOrderRepository.findById(999L)).thenReturn(Optional.empty());
 
-        assertThrows(OrderNotFoundException.class, () -> orderService.acceptOrder(999L, 2L));
+        assertThrows(OrderNotFoundException.class, () -> orderLifecycleService.acceptOrder(999L, 2L));
     }
 
     /** 结束服务成功 → COMPLETED */
@@ -221,7 +201,7 @@ class OrderServiceTest {
         when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
         when(runOrderRepository.save(any(RunOrder.class))).thenReturn(order);
 
-        orderService.finishOrder(1001L, 2L);
+        orderLifecycleService.finishOrder(1001L, 2L);
 
         assertEquals(OrderStatus.COMPLETED, order.getStatus());
         assertNotNull(order.getFinishedAt());
@@ -240,7 +220,7 @@ class OrderServiceTest {
 
         when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
 
-        assertThrows(OrderPermissionException.class, () -> orderService.finishOrder(1001L, 3L));
+        assertThrows(OrderPermissionException.class, () -> orderLifecycleService.finishOrder(1001L, 3L));
     }
 
     /** 结束服务失败：状态不是 IN_PROGRESS */
@@ -256,7 +236,7 @@ class OrderServiceTest {
 
         when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
 
-        assertThrows(OrderStatusException.class, () -> orderService.finishOrder(1001L, 2L));
+        assertThrows(OrderStatusException.class, () -> orderLifecycleService.finishOrder(1001L, 2L));
     }
 
     /** 从 REMATCHING 状态接单成功 → IN_PROGRESS，清除 rematchNotifyAt */
@@ -279,13 +259,11 @@ class OrderServiceTest {
         when(runOrderRepository.save(any(RunOrder.class))).thenReturn(order);
         when(userRepository.getReferenceById(2L)).thenReturn(new User());
 
-        orderService.acceptOrder(1001L, 2L);
+        orderLifecycleService.acceptOrder(1001L, 2L);
 
         assertEquals(OrderStatus.IN_PROGRESS, order.getStatus());
         assertNotNull(order.getAcceptedAt());
-        // 验证清除了重新匹配提醒时间
         assertNull(order.getRematchNotifyAt());
-        // 验证发送了"新志愿者"通知
         verify(notificationService).sendNotification(eq(1L), eq("REMATCH_ACCEPTED"), eq(TargetRole.BLIND_USER), any());
     }
 }

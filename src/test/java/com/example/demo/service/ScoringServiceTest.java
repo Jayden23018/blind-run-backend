@@ -47,9 +47,12 @@ class ScoringServiceTest {
         }
 
         @Test
-        @DisplayName("2.5km 得 0.5 分（线性递减）")
-        void halfDistance_halfScore() {
-            assertThat(scoringService.calcDistanceScore(2.5, 5)).isEqualTo(0.5);
+        @DisplayName("2.5km 得约 0.293 分（平方根衰减）")
+        void halfDistance_sqrtScore() {
+            // 1 - sqrt(2.5/5) = 1 - sqrt(0.5) ≈ 0.293
+            double expected = 1 - Math.sqrt(0.5);
+            assertThat(scoringService.calcDistanceScore(2.5, 5))
+                    .isCloseTo(expected, org.assertj.core.api.Assertions.within(1e-9));
         }
     }
 
