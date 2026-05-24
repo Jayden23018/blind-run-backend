@@ -1,16 +1,17 @@
 package com.example.demo.service;
 
+import com.example.demo.dto.RespondAction;
 import com.example.demo.dto.ScoredCandidate;
 import com.example.demo.entity.*;
+import com.example.demo.event.DispatchAcceptedEvent;
 import com.example.demo.repository.RunOrderRepository;
 import org.springframework.dao.OptimisticLockingFailureException;
 import com.example.demo.repository.VolunteerAvailableTimeRepository;
 import com.example.demo.repository.VolunteerProfileRepository;
 import com.example.demo.util.PhoneMaskUtils;
-import com.example.demo.websocket.UnifiedSessionRegistry;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,9 +41,8 @@ public class DispatchService {
     private final VolunteerAvailableTimeRepository availableTimeRepository;
     private final RunOrderRepository runOrderRepository;
     private final StringRedisTemplate redisTemplate;
-    private final UnifiedSessionRegistry sessionRegistry;
-    private final ObjectMapper objectMapper;
     private final NotificationService notificationService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Value("${app.dispatch.per-volunteer-timeout-seconds:30}")
     private int perVolunteerTimeoutSeconds;
@@ -71,18 +71,16 @@ public class DispatchService {
                            VolunteerAvailableTimeRepository availableTimeRepository,
                            RunOrderRepository runOrderRepository,
                            StringRedisTemplate redisTemplate,
-                           UnifiedSessionRegistry sessionRegistry,
-                           ObjectMapper objectMapper,
-                           NotificationService notificationService) {
+                           NotificationService notificationService,
+                           ApplicationEventPublisher eventPublisher) {
         this.scoringService = scoringService;
         this.volunteerLocationService = volunteerLocationService;
         this.volunteerProfileRepository = volunteerProfileRepository;
         this.availableTimeRepository = availableTimeRepository;
         this.runOrderRepository = runOrderRepository;
         this.redisTemplate = redisTemplate;
-        this.sessionRegistry = sessionRegistry;
-        this.objectMapper = objectMapper;
         this.notificationService = notificationService;
+        this.eventPublisher = eventPublisher;
     }
 
     // ===== Redis Key 模板 =====
@@ -222,6 +220,21 @@ public class DispatchService {
     }
 
     /**
+     * 志愿者响应串行派单（接单或拒绝）—— 由 OrderController 调用
+     * ACCEPT：完成派单协议后发布 DispatchAcceptedEvent，异步推进订单状态机
+     * DECLINE：直接走拒绝流程，推送下一个候选志愿者
+     */
+    public void handleVolunteerResponse(Long orderId, Long volunteerId, RespondAction action) {
+        switch (action) {
+            case ACCEPT -> {
+                handleAccept(orderId, volunteerId);
+                eventPublisher.publishEvent(new DispatchAcceptedEvent(this, orderId, volunteerId));
+            }
+            case DECLINE -> handleDecline(orderId, volunteerId);
+        }
+    }
+
+    /**
      * 获取当前正在等待回应的志愿者 ID
      */
     public Long getCurrentVolunteer(Long orderId) {
@@ -242,10 +255,13 @@ public class DispatchService {
         double distanceKm = getDistanceForRound(round);
         double minOverlap = getOverlapForRound(round);
 
-        // 1. 获取在线志愿者位置
-        List<Map<String, Object>> locations = volunteerLocationService.getOnlineVolunteerLocations();
+        // 1. 获取在线且开启接单的志愿者位置
+        List<Map<String, Object>> locations = volunteerLocationService.getOnlineVolunteerLocations()
+                .stream()
+                .filter(loc -> !Boolean.FALSE.equals(loc.get("wantsDispatch")))
+                .toList();
         if (locations.isEmpty()) {
-            log.info("订单 {} 第 {} 轮：无在线志愿者", order.getId(), round);
+            log.info("订单 {} 第 {} 轮：无在线且接单中的志愿者", order.getId(), round);
             return;
         }
 
@@ -402,48 +418,19 @@ public class DispatchService {
     // ===== 推送通知 =====
 
     private void pushOrderNotification(RunOrder order, Long volunteerId) {
-        try {
-            double distance = 0;
-            // 尝试计算距离
-            List<Map<String, Object>> locations = volunteerLocationService.getOnlineVolunteerLocations();
-            for (Map<String, Object> loc : locations) {
-                Object id = loc.get("userId");
-                if (id instanceof Number n && n.longValue() == volunteerId) {
-                    double lat = ((Number) loc.get("lat")).doubleValue();
-                    double lng = ((Number) loc.get("lng")).doubleValue();
-                    distance = com.example.demo.util.GeoUtils.distanceKm(
-                            order.getStartLatitude(), order.getStartLongitude(), lat, lng);
-                    break;
-                }
+        double distanceKm = 0;
+        List<Map<String, Object>> locations = volunteerLocationService.getOnlineVolunteerLocations();
+        for (Map<String, Object> loc : locations) {
+            Object id = loc.get("userId");
+            if (id instanceof Number n && n.longValue() == volunteerId) {
+                double lat = ((Number) loc.get("lat")).doubleValue();
+                double lng = ((Number) loc.get("lng")).doubleValue();
+                distanceKm = com.example.demo.util.GeoUtils.distanceKm(
+                        order.getStartLatitude(), order.getStartLongitude(), lat, lng);
+                break;
             }
-
-            Map<String, Object> msg = new LinkedHashMap<>();
-            msg.put("type", "NEW_ORDER");
-            msg.put("orderId", order.getId());
-            msg.put("startAddress", order.getStartAddress());
-            msg.put("distanceKm", Math.round(distance * 10.0) / 10.0);
-            msg.put("plannedStart", order.getPlannedStartTime().toString());
-            msg.put("plannedEnd", order.getPlannedEndTime().toString());
-            msg.put("dispatchTimeoutSeconds", perVolunteerTimeoutSeconds);
-            msg.put("priority", "HIGH");
-
-            if (order.getPacePreference() != null) {
-                msg.put("pacePreference", order.getPacePreference().name());
-            }
-            if (Boolean.TRUE.equals(order.getHasGuideDogThisRun())) {
-                msg.put("hasGuideDog", true);
-            }
-            if (order.getSpecialNotes() != null && !order.getSpecialNotes().isBlank()) {
-                msg.put("specialNotes", order.getSpecialNotes());
-            }
-
-            String json = objectMapper.writeValueAsString(msg);
-            sessionRegistry.sendToUser(volunteerId, json);
-
-            log.info("已向志愿者 {} 推送订单 {} 通知", volunteerId, order.getId());
-        } catch (Exception e) {
-            log.error("推送订单 {} 通知给志愿者 {} 失败: {}", order.getId(), volunteerId, e.getMessage());
         }
+        notificationService.sendDispatchNotification(volunteerId, order, distanceKm, perVolunteerTimeoutSeconds);
     }
 
     // ===== 统计更新 =====

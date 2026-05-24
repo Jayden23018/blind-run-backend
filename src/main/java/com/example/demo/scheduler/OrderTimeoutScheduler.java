@@ -5,7 +5,6 @@ import com.example.demo.entity.RunOrder;
 import com.example.demo.entity.TargetRole;
 import com.example.demo.repository.RunOrderRepository;
 import com.example.demo.service.NotificationService;
-import com.example.demo.service.OrderService;
 import com.example.demo.service.ProximityService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -24,18 +23,15 @@ public class OrderTimeoutScheduler {
 
     private final RunOrderRepository runOrderRepository;
     private final com.example.demo.service.OrderStatusLogService statusLogService;
-    private final OrderService orderService;
     private final NotificationService notificationService;
     private final ProximityService proximityService;
 
     public OrderTimeoutScheduler(RunOrderRepository runOrderRepository,
                                   com.example.demo.service.OrderStatusLogService statusLogService,
-                                  OrderService orderService,
                                   NotificationService notificationService,
                                   ProximityService proximityService) {
         this.runOrderRepository = runOrderRepository;
         this.statusLogService = statusLogService;
-        this.orderService = orderService;
         this.notificationService = notificationService;
         this.proximityService = proximityService;
     }

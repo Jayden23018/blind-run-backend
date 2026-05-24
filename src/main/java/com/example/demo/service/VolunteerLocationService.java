@@ -7,7 +7,6 @@ import com.example.demo.entity.VolunteerLocation;
 import com.example.demo.repository.RunOrderRepository;
 import com.example.demo.repository.UserRepository;
 import com.example.demo.repository.VolunteerLocationRepository;
-import com.example.demo.websocket.UnifiedSessionRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -43,7 +42,7 @@ public class VolunteerLocationService {
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final RunOrderRepository runOrderRepository;
-    private final UnifiedSessionRegistry sessionRegistry;
+    private final NotificationService notificationService;
     private final ProximityService proximityService;
     private final BlindLocationService blindLocationService;
 
@@ -59,7 +58,7 @@ public class VolunteerLocationService {
                                      StringRedisTemplate redisTemplate,
                                      ObjectMapper objectMapper,
                                      RunOrderRepository runOrderRepository,
-                                     UnifiedSessionRegistry sessionRegistry,
+                                     NotificationService notificationService,
                                      ProximityService proximityService,
                                      BlindLocationService blindLocationService) {
         this.locationRepository = locationRepository;
@@ -67,7 +66,7 @@ public class VolunteerLocationService {
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
         this.runOrderRepository = runOrderRepository;
-        this.sessionRegistry = sessionRegistry;
+        this.notificationService = notificationService;
         this.proximityService = proximityService;
         this.blindLocationService = blindLocationService;
     }
@@ -106,14 +105,17 @@ public class VolunteerLocationService {
         location.setUpdatedAt(LocalDateTime.now());
         locationRepository.save(location);
 
-        // 2. 写入 Redis
+        // 2. 写入 Redis（保留已有的 wantsDispatch 标志）
         try {
             String key = REDIS_KEY_PREFIX + userId;
+            boolean wantsDispatch = readWantsDispatch(key);
+
             Map<String, Object> value = new HashMap<>();
             value.put("userId", userId);
             value.put("lat", latitude);
             value.put("lng", longitude);
             value.put("isOnline", isOnline != null ? isOnline : true);
+            value.put("wantsDispatch", wantsDispatch);
             value.put("updatedAt", System.currentTimeMillis());
 
             String json = objectMapper.writeValueAsString(value);
@@ -150,6 +152,43 @@ public class VolunteerLocationService {
     }
 
     /**
+     * 更新志愿者接单开关，不改变位置和在线状态
+     */
+    public void updateDispatchStatus(Long userId, boolean wantsDispatch) {
+        String key = REDIS_KEY_PREFIX + userId;
+        try {
+            String existing = redisTemplate.opsForValue().get(key);
+            if (existing == null) {
+                log.debug("志愿者 {} 的位置 key 不存在，接单开关变更将在下次位置上报时生效", userId);
+                return;
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> data = new HashMap<>(objectMapper.readValue(existing, Map.class));
+            data.put("wantsDispatch", wantsDispatch);
+            Long ttl = redisTemplate.getExpire(key, TimeUnit.SECONDS);
+            long remainTtl = (ttl != null && ttl > 0) ? ttl : locationTtlSeconds;
+            redisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(data), remainTtl, TimeUnit.SECONDS);
+            log.info("志愿者 {} 接单开关已设为 {}", userId, wantsDispatch);
+        } catch (Exception e) {
+            log.warn("更新志愿者 {} 接单状态失败: {}", userId, e.getMessage());
+        }
+    }
+
+    /** 从 Redis 读取现有的 wantsDispatch 值，key 不存在时默认 true */
+    private boolean readWantsDispatch(String key) {
+        try {
+            String existing = redisTemplate.opsForValue().get(key);
+            if (existing == null) return true;
+            @SuppressWarnings("unchecked")
+            Map<String, Object> data = objectMapper.readValue(existing, Map.class);
+            Object flag = data.get("wantsDispatch");
+            return flag == null || Boolean.TRUE.equals(flag);
+        } catch (Exception e) {
+            return true;
+        }
+    }
+
+    /**
      * 将志愿者位置转发给对应订单的盲人用户
      * 只在订单状态为 DRIVER_EN_ROUTE 或 DRIVER_ARRIVED 时推送
      */
@@ -166,15 +205,7 @@ public class VolunteerLocationService {
 
             for (RunOrder order : activeOrders) {
                 Long blindUserId = order.getBlindUser().getId();
-                Map<String, Object> msg = new HashMap<>();
-                msg.put("type", "VOLUNTEER_LOCATION_UPDATE");
-                msg.put("orderId", order.getId());
-                msg.put("lat", latitude);
-                msg.put("lng", longitude);
-                msg.put("timestamp", System.currentTimeMillis());
-
-                String jsonMsg = objectMapper.writeValueAsString(msg);
-                sessionRegistry.sendToUser(blindUserId, jsonMsg);
+                notificationService.sendVolunteerLocationUpdate(blindUserId, order.getId(), latitude, longitude);
                 log.debug("已向盲人 {} 转发志愿者 {} 位置 (订单 {})", blindUserId, volunteerId, order.getId());
 
                 // 邻近检测：志愿者出发途中，检查是否已接近盲人

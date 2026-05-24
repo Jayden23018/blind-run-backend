@@ -102,6 +102,7 @@ class MatchingTest extends BaseIntegrationTest {
 
         // 5. 最近的志愿者（vol1）可以接单
         testHelper.respondAccept(vol1, orderId);
+        Thread.sleep(500); // 等待 @Async onDispatchAccepted 将状态推进到 IN_PROGRESS
 
         // 6. 接单后状态变为 IN_PROGRESS
         assertThat(testHelper.getOrderStatus(blindToken, orderId)).isEqualTo(OrderStatus.IN_PROGRESS);
@@ -182,6 +183,7 @@ class MatchingTest extends BaseIntegrationTest {
 
         // 5. 最近的志愿者接单成功
         testHelper.respondAccept(volNear, orderId);
+        Thread.sleep(500); // 等待 @Async onDispatchAccepted 将状态推进到 IN_PROGRESS
 
         // 6. 接单后状态变为 IN_PROGRESS
         assertThat(testHelper.getOrderStatus(blindToken, orderId)).isEqualTo(OrderStatus.IN_PROGRESS);

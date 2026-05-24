@@ -1,15 +1,21 @@
 package com.example.demo.service;
 
 import com.example.demo.dto.admin.IdReviewRequest;
-import com.example.demo.util.PhoneMaskUtils;
+import com.example.demo.dto.admin.QuizQuestionRequest;
+import com.example.demo.dto.admin.TrainingCourseRequest;
+import com.example.demo.dto.admin.TrainingCourseResponse;
+import com.example.demo.dto.admin.TrainingQuizQuestionResponse;
 import com.example.demo.dto.admin.TrainingStatsResponse;
 import com.example.demo.dto.admin.VolunteerReviewItemResponse;
-import com.example.demo.entity.IdVerifyStatus;
-import com.example.demo.entity.RegistrationStep;
-import com.example.demo.entity.TargetRole;
-import com.example.demo.entity.TrainingProgressStatus;
+import com.example.demo.entity.*;
+import com.example.demo.exception.ResourceNotFoundException;
+import com.example.demo.repository.TrainingCourseRepository;
 import com.example.demo.repository.TrainingProgressRepository;
+import com.example.demo.repository.TrainingQuizQuestionRepository;
 import com.example.demo.repository.VolunteerProfileRepository;
+import com.example.demo.util.PhoneMaskUtils;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,15 +35,24 @@ public class AdminVolunteerService {
     private final TrainingProgressRepository trainingProgressRepository;
     private final NotificationService notificationService;
     private final FileStorageService fileStorageService;
+    private final TrainingCourseRepository trainingCourseRepository;
+    private final TrainingQuizQuestionRepository questionRepository;
+    private final ObjectMapper objectMapper;
 
     public AdminVolunteerService(VolunteerProfileRepository volunteerProfileRepository,
                                   TrainingProgressRepository trainingProgressRepository,
                                   NotificationService notificationService,
-                                  FileStorageService fileStorageService) {
+                                  FileStorageService fileStorageService,
+                                  TrainingCourseRepository trainingCourseRepository,
+                                  TrainingQuizQuestionRepository questionRepository,
+                                  ObjectMapper objectMapper) {
         this.volunteerProfileRepository = volunteerProfileRepository;
         this.trainingProgressRepository = trainingProgressRepository;
         this.notificationService = notificationService;
         this.fileStorageService = fileStorageService;
+        this.trainingCourseRepository = trainingCourseRepository;
+        this.questionRepository = questionRepository;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -107,7 +122,92 @@ public class AdminVolunteerService {
         );
     }
 
+    // === 培训课程管理 ===
+
+    @Transactional
+    public TrainingCourseResponse createCourse(TrainingCourseRequest request) {
+        TrainingCourse course = new TrainingCourse();
+        applyCourseFields(course, request);
+        return TrainingCourseResponse.from(trainingCourseRepository.save(course));
+    }
+
+    @Transactional
+    public TrainingCourseResponse updateCourse(Long id, TrainingCourseRequest request) {
+        TrainingCourse course = trainingCourseRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("课程不存在: " + id));
+        applyCourseFields(course, request);
+        return TrainingCourseResponse.from(trainingCourseRepository.save(course));
+    }
+
+    @Transactional
+    public void deleteCourse(Long id) {
+        if (!trainingCourseRepository.existsById(id)) {
+            throw new ResourceNotFoundException("课程不存在: " + id);
+        }
+        trainingCourseRepository.deleteById(id);
+    }
+
+    // === 测验题目管理 ===
+
+    @Transactional
+    public TrainingQuizQuestionResponse createQuestion(Long courseId, QuizQuestionRequest request) {
+        if (!trainingCourseRepository.existsById(courseId)) {
+            throw new ResourceNotFoundException("课程不存在: " + courseId);
+        }
+        TrainingQuizQuestion question = new TrainingQuizQuestion();
+        question.setCourseId(courseId);
+        applyQuestionFields(question, request);
+        questionRepository.save(question);
+        return toQuestionResponse(question, request.getOptions(), request.getCorrectAnswer());
+    }
+
+    @Transactional
+    public TrainingQuizQuestionResponse updateQuestion(Long id, QuizQuestionRequest request) {
+        TrainingQuizQuestion question = questionRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("题目不存在: " + id));
+        applyQuestionFields(question, request);
+        questionRepository.save(question);
+        return toQuestionResponse(question, request.getOptions(), request.getCorrectAnswer());
+    }
+
+    @Transactional
+    public void deleteQuestion(Long id) {
+        if (!questionRepository.existsById(id)) {
+            throw new ResourceNotFoundException("题目不存在: " + id);
+        }
+        questionRepository.deleteById(id);
+    }
+
     // === 私有方法 ===
+
+    private void applyCourseFields(TrainingCourse course, TrainingCourseRequest request) {
+        course.setTitle(request.getTitle());
+        course.setDescription(request.getDescription());
+        course.setDurationMinutes(request.getDurationMinutes());
+        course.setVideoUrl(request.getVideoUrl());
+        course.setContent(request.getContent());
+        course.setDisplayOrder(request.getDisplayOrder());
+        course.setIsActive(request.getIsActive() != null ? request.getIsActive() : true);
+    }
+
+    private void applyQuestionFields(TrainingQuizQuestion question, QuizQuestionRequest request) {
+        question.setQuestionText(request.getQuestionText());
+        question.setQuestionType(QuestionType.valueOf(request.getQuestionType()));
+        try {
+            question.setOptions(objectMapper.writeValueAsString(request.getOptions()));
+            question.setCorrectAnswer(objectMapper.writeValueAsString(request.getCorrectAnswer()));
+        } catch (Exception e) {
+            throw new IllegalArgumentException("选项序列化失败: " + e.getMessage());
+        }
+        question.setExplanation(request.getExplanation());
+        question.setDisplayOrder(request.getDisplayOrder());
+    }
+
+    private TrainingQuizQuestionResponse toQuestionResponse(TrainingQuizQuestion question,
+                                                              List<String> options,
+                                                              List<String> correctAnswer) {
+        return TrainingQuizQuestionResponse.from(question, options, correctAnswer);
+    }
 
     private VolunteerReviewItemResponse toReviewItemResponse(com.example.demo.entity.VolunteerProfile profile) {
         return new VolunteerReviewItemResponse(

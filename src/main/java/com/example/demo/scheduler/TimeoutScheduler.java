@@ -7,7 +7,7 @@ import com.example.demo.entity.RunOrder;
 import com.example.demo.repository.EmergencyEventRepository;
 import com.example.demo.repository.RunOrderRepository;
 import com.example.demo.service.EmergencyService;
-import com.example.demo.service.OrderService;
+import com.example.demo.service.OrderLifecycleService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -29,16 +29,16 @@ public class TimeoutScheduler {
     private final EmergencyEventRepository eventRepository;
     private final RunOrderRepository runOrderRepository;
     private final EmergencyService emergencyService;
-    private final OrderService orderService;
+    private final OrderLifecycleService orderLifecycleService;
 
     public TimeoutScheduler(EmergencyEventRepository eventRepository,
                              RunOrderRepository runOrderRepository,
                              EmergencyService emergencyService,
-                             OrderService orderService) {
+                             OrderLifecycleService orderLifecycleService) {
         this.eventRepository = eventRepository;
         this.runOrderRepository = runOrderRepository;
         this.emergencyService = emergencyService;
-        this.orderService = orderService;
+        this.orderLifecycleService = orderLifecycleService;
     }
 
     /**
@@ -70,7 +70,7 @@ public class TimeoutScheduler {
 
         for (RunOrder order : orders) {
             try {
-                orderService.handleRematchTimeout(order.getId());
+                orderLifecycleService.handleRematchTimeout(order.getId());
             } catch (Exception e) {
                 log.warn("处理订单 {} 重新匹配超时失败: {}", order.getId(), e.getMessage());
             }
@@ -90,7 +90,7 @@ public class TimeoutScheduler {
             // 跳过由 DispatchScheduler 管理的派单订单
             if (order.getDispatchStartedAt() != null) continue;
             try {
-                orderService.handleMatchTimeout(order.getId());
+                orderLifecycleService.handleMatchTimeout(order.getId());
             } catch (Exception e) {
                 log.warn("处理订单 {} 匹配超时失败: {}", order.getId(), e.getMessage());
             }
@@ -109,7 +109,7 @@ public class TimeoutScheduler {
 
         for (RunOrder order : orders) {
             try {
-                orderService.handleOverdueOrder(order.getId());
+                orderLifecycleService.handleOverdueOrder(order.getId());
             } catch (Exception e) {
                 log.warn("处理订单 {} 超时挂起失败: {}", order.getId(), e.getMessage());
             }

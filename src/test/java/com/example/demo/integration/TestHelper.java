@@ -366,6 +366,8 @@ public class TestHelper {
         // 等待异步派单完成后，志愿者通过 /respond 接单
         Thread.sleep(500); // 等待异步 DispatchService 启动
         respondAccept(volToken, orderId);
+        // respondAccept 触发 @Async onDispatchAccepted，等待其将订单推进到 IN_PROGRESS
+        waitForOrderStatus(volToken, orderId, OrderStatus.IN_PROGRESS, 3);
         finishOrder(volToken, orderId);
 
         return new FlowResult(blindToken, volToken, orderId);
@@ -384,6 +386,8 @@ public class TestHelper {
         // 等待异步派单完成后，志愿者通过 /respond 接单
         Thread.sleep(500); // 等待异步 DispatchService 启动
         respondAccept(volToken, orderId);
+        // 等待 onDispatchAccepted 完成状态迁移
+        waitForOrderStatus(volToken, orderId, OrderStatus.IN_PROGRESS, 3);
 
         return new FlowResult(blindToken, volToken, orderId);
     }

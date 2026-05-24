@@ -3,7 +3,6 @@ package com.example.demo.service;
 import com.example.demo.entity.*;
 import com.example.demo.exception.OrderPermissionException;
 
-import com.example.demo.repository.BlindProfileRepository;
 import com.example.demo.repository.RunOrderRepository;
 import com.example.demo.repository.UserRepository;
 import com.example.demo.repository.VolunteerProfileRepository;
@@ -26,47 +25,23 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class OrderCancelTest {
 
-    @Mock
-    private RunOrderRepository runOrderRepository;
+    @Mock private RunOrderRepository runOrderRepository;
+    @Mock private UserRepository userRepository;
+    @Mock private ApplicationEventPublisher eventPublisher;
+    @Mock private VolunteerProfileRepository volunteerProfileRepository;
+    @Mock private OrderStatusLogService statusLogService;
+    @Mock private NotificationService notificationService;
+    @Mock private ProximityService proximityService;
+    @Mock private VolunteerLocationService volunteerLocationService;
 
-    @Mock
-    private UserRepository userRepository;
-
-    @Mock
-    private ApplicationEventPublisher eventPublisher;
-
-    @Mock
-    private BlindProfileRepository blindProfileRepository;
-
-    @Mock
-    private VolunteerProfileRepository volunteerProfileRepository;
-
-    @Mock
-    private OrderStatusLogService statusLogService;
-
-    @Mock
-    private EmergencyContactService emergencyContactService;
-
-    @Mock
-    private NotificationService notificationService;
-
-    @Mock
-    private ProximityService proximityService;
-
-    @Mock
-    private DispatchService dispatchService;
-
-    @Mock
-    private VolunteerLocationService volunteerLocationService;
-
-    private OrderService orderService;
+    private OrderLifecycleService orderLifecycleService;
 
     @BeforeEach
     void setUp() {
-        orderService = new OrderService(runOrderRepository, userRepository, eventPublisher,
-                blindProfileRepository, volunteerProfileRepository, statusLogService,
-                emergencyContactService, notificationService, proximityService, dispatchService,
-                volunteerLocationService);
+        orderLifecycleService = new OrderLifecycleService(
+                runOrderRepository, userRepository, eventPublisher,
+                volunteerProfileRepository, statusLogService,
+                notificationService, proximityService, volunteerLocationService);
     }
 
     /** 盲人在 IN_PROGRESS 状态取消 → 403 */
@@ -87,7 +62,7 @@ class OrderCancelTest {
         when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
 
         OrderPermissionException ex = assertThrows(OrderPermissionException.class,
-                () -> orderService.cancelOrder(1001L, 1L));
+                () -> orderLifecycleService.cancelOrder(1001L, 1L));
         assertTrue(ex.getMessage().contains("服务进行中"));
     }
 
@@ -105,7 +80,7 @@ class OrderCancelTest {
         when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
 
         assertThrows(OrderPermissionException.class,
-                () -> orderService.cancelOrder(1001L, 99L));
+                () -> orderLifecycleService.cancelOrder(1001L, 99L));
     }
 
     /** 盲人在 PENDING_MATCH 取消 → CANCELLED */
@@ -122,7 +97,7 @@ class OrderCancelTest {
         when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
         when(runOrderRepository.save(any(RunOrder.class))).thenReturn(order);
 
-        orderService.cancelOrder(1001L, 1L);
+        orderLifecycleService.cancelOrder(1001L, 1L);
 
         assertEquals(OrderStatus.CANCELLED, order.getStatus());
         assertEquals(CancelledBy.BLIND, order.getCancelledBy());
@@ -142,7 +117,7 @@ class OrderCancelTest {
         when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
         when(runOrderRepository.save(any(RunOrder.class))).thenReturn(order);
 
-        orderService.cancelOrder(1001L, 1L);
+        orderLifecycleService.cancelOrder(1001L, 1L);
 
         assertEquals(OrderStatus.CANCELLED, order.getStatus());
         assertEquals(CancelledBy.BLIND, order.getCancelledBy());
@@ -166,7 +141,7 @@ class OrderCancelTest {
         when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
         when(runOrderRepository.save(any(RunOrder.class))).thenReturn(order);
 
-        orderService.cancelOrder(1001L, 2L);
+        orderLifecycleService.cancelOrder(1001L, 2L);
 
         assertEquals(OrderStatus.CANCELLED, order.getStatus());
         assertEquals(CancelledBy.VOLUNTEER, order.getCancelledBy());
@@ -190,7 +165,7 @@ class OrderCancelTest {
         when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
         when(runOrderRepository.save(any(RunOrder.class))).thenReturn(order);
 
-        orderService.cancelOrder(1001L, 2L);
+        orderLifecycleService.cancelOrder(1001L, 2L);
 
         assertEquals(OrderStatus.REMATCHING, order.getStatus());
         assertEquals(CancelledBy.VOLUNTEER, order.getCancelledBy());
@@ -223,7 +198,7 @@ class OrderCancelTest {
         when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
         when(runOrderRepository.save(any(RunOrder.class))).thenReturn(order);
 
-        orderService.cancelOrder(1001L, 2L);
+        orderLifecycleService.cancelOrder(1001L, 2L);
 
         assertEquals(OrderStatus.REMATCHING, order.getStatus());
         assertNull(order.getVolunteer());
@@ -248,7 +223,7 @@ class OrderCancelTest {
         when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
         when(runOrderRepository.save(any(RunOrder.class))).thenReturn(order);
 
-        orderService.cancelOrder(1001L, 2L);
+        orderLifecycleService.cancelOrder(1001L, 2L);
 
         assertEquals(OrderStatus.REMATCHING, order.getStatus());
         assertNull(order.getVolunteer());
@@ -268,7 +243,7 @@ class OrderCancelTest {
         when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
         when(runOrderRepository.save(any(RunOrder.class))).thenReturn(order);
 
-        orderService.cancelOrder(1001L, 1L);
+        orderLifecycleService.cancelOrder(1001L, 1L);
 
         assertEquals(OrderStatus.CANCELLED, order.getStatus());
         assertEquals(CancelledBy.BLIND, order.getCancelledBy());

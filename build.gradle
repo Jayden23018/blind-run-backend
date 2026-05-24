@@ -55,6 +55,10 @@ dependencies {
 	testImplementation 'org.testcontainers:testcontainers-junit-jupiter:2.0.4'
 }
 
+tasks.named('bootJar') {
+	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
 tasks.named('test') {
 	useJUnitPlatform {
 		excludeTags 'slow'

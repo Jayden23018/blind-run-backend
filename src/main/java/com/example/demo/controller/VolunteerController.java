@@ -1,5 +1,6 @@
 package com.example.demo.controller;
 
+import com.example.demo.dto.DispatchStatusRequest;
 import com.example.demo.dto.VolunteerProfileResponse;
 import com.example.demo.dto.VolunteerProfileUpdateRequest;
 import com.example.demo.dto.VolunteerLocationRequest;
@@ -83,6 +84,17 @@ public class VolunteerController {
         Long userId = SecurityUtils.getCurrentUserId();
         String status = volunteerService.getVerificationStatus(userId);
         return ResponseEntity.ok(Map.of("status", status));
+    }
+
+    /**
+     * 切换接单开关：志愿者可随时暂停/恢复接单，不影响在线位置上报
+     * PUT /api/volunteer/dispatch-status
+     */
+    @PutMapping("/dispatch-status")
+    public ResponseEntity<?> updateDispatchStatus(@Valid @RequestBody DispatchStatusRequest request) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        volunteerLocationService.updateDispatchStatus(userId, request.wantsDispatch());
+        return ResponseEntity.ok(Map.of("success", true, "wantsDispatch", request.wantsDispatch()));
     }
 
     /**
