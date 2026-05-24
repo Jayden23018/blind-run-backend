@@ -103,7 +103,7 @@ public class VolunteerService {
     }
 
     /**
-     * 上传资质证件（v1.0 自动审核通过）
+     * 上传资质证件 —— 提交后进入待审核状态，由管理员审核
      */
     @Transactional
     public String submitVerification(Long userId, MultipartFile file) {
@@ -115,11 +115,11 @@ public class VolunteerService {
         String filePath = fileStorageService.store(file);
 
         profile.setVerificationDocUrl(filePath);
-        profile.setVerificationStatus(VerificationStatus.APPROVED);
-        profile.setVerified(true);
+        profile.setVerificationStatus(VerificationStatus.PENDING);
+        // verified 保持 false，等管理员审核通过后才置为 true
         volunteerProfileRepository.save(profile);
 
-        return VerificationStatus.APPROVED.name();
+        return VerificationStatus.PENDING.name();
     }
 
     /**

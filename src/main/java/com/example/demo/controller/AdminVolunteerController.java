@@ -1,6 +1,8 @@
 package com.example.demo.controller;
 
 import com.example.demo.dto.ApiResponse;
+import com.example.demo.dto.admin.CertReviewItemResponse;
+import com.example.demo.dto.admin.CertReviewRequest;
 import com.example.demo.dto.admin.IdReviewRequest;
 import com.example.demo.dto.admin.QuizQuestionRequest;
 import com.example.demo.dto.admin.TrainingCourseRequest;
@@ -32,6 +34,21 @@ public class AdminVolunteerController {
     public AdminVolunteerController(AdminVolunteerService adminVolunteerService) {
         this.adminVolunteerService = adminVolunteerService;
     }
+
+    // ===== 资质证书审核 =====
+
+    @GetMapping("/review/cert")
+    public ResponseEntity<ApiResponse<List<CertReviewItemResponse>>> getVolunteersForCertReview() {
+        return ResponseEntity.ok(ApiResponse.ok(adminVolunteerService.getVolunteersForCertReview()));
+    }
+
+    @PostMapping("/review/cert")
+    public ResponseEntity<ApiResponse<String>> reviewCertificate(@Valid @RequestBody CertReviewRequest request) {
+        adminVolunteerService.reviewCertificate(request);
+        return ResponseEntity.ok(ApiResponse.ok("审核完成"));
+    }
+
+    // ===== 身份证审核 =====
 
     @GetMapping("/review/id")
     public ResponseEntity<ApiResponse<List<VolunteerReviewItemResponse>>> getVolunteersForIdReview() {

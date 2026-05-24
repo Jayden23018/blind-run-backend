@@ -1,5 +1,7 @@
 package com.example.demo.service;
 
+import com.example.demo.dto.admin.CertReviewItemResponse;
+import com.example.demo.dto.admin.CertReviewRequest;
 import com.example.demo.dto.admin.IdReviewRequest;
 import com.example.demo.dto.admin.QuizQuestionRequest;
 import com.example.demo.dto.admin.TrainingCourseRequest;
@@ -8,6 +10,7 @@ import com.example.demo.dto.admin.TrainingQuizQuestionResponse;
 import com.example.demo.dto.admin.TrainingStatsResponse;
 import com.example.demo.dto.admin.VolunteerReviewItemResponse;
 import com.example.demo.entity.*;
+import com.example.demo.entity.VerificationStatus;
 import com.example.demo.exception.ResourceNotFoundException;
 import com.example.demo.repository.TrainingCourseRepository;
 import com.example.demo.repository.TrainingProgressRepository;
@@ -100,6 +103,53 @@ public class AdminVolunteerService {
                     TargetRole.VOLUNTEER, params);
 
             log.info("管理员审核拒绝志愿者 {} 的身份证，原因：{}", request.getUserId(), request.getRejectionReason());
+        }
+
+        volunteerProfileRepository.save(profile);
+    }
+
+    /**
+     * 获取待审核资质证书列表
+     */
+    public List<CertReviewItemResponse> getVolunteersForCertReview() {
+        return volunteerProfileRepository.findByVerificationStatus(VerificationStatus.PENDING).stream()
+                .map(this::toCertReviewItemResponse)
+                .toList();
+    }
+
+    /**
+     * 审核资质证书
+     */
+    @Transactional
+    public void reviewCertificate(CertReviewRequest request) {
+        var profile = volunteerProfileRepository.findByUserId(request.getUserId())
+                .orElseThrow(() -> new IllegalArgumentException("志愿者不存在"));
+
+        if (profile.getVerificationStatus() != VerificationStatus.PENDING) {
+            throw new IllegalArgumentException("该志愿者证书不在待审核状态");
+        }
+
+        if (request.getApproved()) {
+            // 审核通过
+            profile.setVerificationStatus(VerificationStatus.APPROVED);
+            profile.setVerified(true);
+
+            Map<String, String> params = new HashMap<>();
+            notificationService.sendNotification(request.getUserId(), "CERT_APPROVED",
+                    TargetRole.VOLUNTEER, params);
+
+            log.info("管理员审核通过志愿者 {} 的资质证书", request.getUserId());
+        } else {
+            // 审核拒绝
+            profile.setVerificationStatus(VerificationStatus.REJECTED);
+            profile.setVerified(false);
+
+            Map<String, String> params = Map.of("reason",
+                    request.getRejectionReason() != null ? request.getRejectionReason() : "未填写原因");
+            notificationService.sendNotification(request.getUserId(), "CERT_REJECTED",
+                    TargetRole.VOLUNTEER, params);
+
+            log.info("管理员审核拒绝志愿者 {} 的资质证书，原因：{}", request.getUserId(), request.getRejectionReason());
         }
 
         volunteerProfileRepository.save(profile);
@@ -222,6 +272,18 @@ public class AdminVolunteerService {
                 profile.getRegistrationStep(),
                 profile.getIdVerifyStatus(),
                 profile.getFaceVerifyStatus(),
+                profile.getUpdatedAt()
+        );
+    }
+
+    private CertReviewItemResponse toCertReviewItemResponse(VolunteerProfile profile) {
+        return new CertReviewItemResponse(
+                profile.getUserId(),
+                profile.getName(),
+                PhoneMaskUtils.mask(profile.getPhone()),
+                fileStorageService.getUrl(profile.getVerificationDocUrl()),
+                profile.getVerificationStatus(),
+                profile.getRegistrationStep(),
                 profile.getUpdatedAt()
         );
     }
