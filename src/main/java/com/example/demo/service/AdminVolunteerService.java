@@ -10,7 +10,6 @@ import com.example.demo.dto.admin.TrainingQuizQuestionResponse;
 import com.example.demo.dto.admin.TrainingStatsResponse;
 import com.example.demo.dto.admin.VolunteerReviewItemResponse;
 import com.example.demo.entity.*;
-import com.example.demo.entity.VerificationStatus;
 import com.example.demo.exception.ResourceNotFoundException;
 import com.example.demo.repository.TrainingCourseRepository;
 import com.example.demo.repository.TrainingProgressRepository;

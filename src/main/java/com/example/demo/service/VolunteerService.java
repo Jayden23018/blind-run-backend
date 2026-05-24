@@ -104,6 +104,8 @@ public class VolunteerService {
 
     /**
      * 上传资质证件 —— 提交后进入待审核状态，由管理员审核
+     * 允许状态：NONE（首次）、PENDING（覆盖重传）、REJECTED（被拒后重传）
+     * 不允许状态：APPROVED（已通过无需重传）
      */
     @Transactional
     public String submitVerification(Long userId, MultipartFile file) {
@@ -112,11 +114,15 @@ public class VolunteerService {
         VolunteerProfile profile = volunteerProfileRepository.findByUserId(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("志愿者资料不存在"));
 
+        if (profile.getVerificationStatus() == VerificationStatus.APPROVED) {
+            throw new IllegalArgumentException("资质证书已审核通过，无需重新上传");
+        }
+
         String filePath = fileStorageService.store(file);
 
         profile.setVerificationDocUrl(filePath);
         profile.setVerificationStatus(VerificationStatus.PENDING);
-        // verified 保持 false，等管理员审核通过后才置为 true
+        profile.setVerified(false); // 明确重置，防止状态不一致
         volunteerProfileRepository.save(profile);
 
         return VerificationStatus.PENDING.name();
