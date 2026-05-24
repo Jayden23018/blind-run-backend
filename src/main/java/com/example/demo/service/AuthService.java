@@ -38,7 +38,9 @@ public class AuthService {
         }
 
         String code = verificationCodeService.generateAndStoreCode(phone);
-        smsService.sendVerificationCode(phone, code);
+        if (!verificationCodeService.isTestPhone(phone)) {
+            smsService.sendVerificationCode(phone, code);
+        }
     }
 
     /**
