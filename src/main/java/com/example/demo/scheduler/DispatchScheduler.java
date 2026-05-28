@@ -4,6 +4,7 @@ import com.example.demo.entity.OrderStatus;
 import com.example.demo.entity.RunOrder;
 import com.example.demo.repository.RunOrderRepository;
 import com.example.demo.service.DispatchService;
+import com.example.demo.service.SchedulerLockService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -26,20 +27,28 @@ public class DispatchScheduler {
     private final RunOrderRepository runOrderRepository;
     private final DispatchService dispatchService;
     private final StringRedisTemplate redisTemplate;
+    private final SchedulerLockService schedulerLockService;
 
     @Value("${app.dispatch.per-volunteer-timeout-seconds:30}")
     private int perVolunteerTimeoutSeconds;
 
     public DispatchScheduler(RunOrderRepository runOrderRepository,
                              DispatchService dispatchService,
-                             StringRedisTemplate redisTemplate) {
+                             StringRedisTemplate redisTemplate,
+                             SchedulerLockService schedulerLockService) {
         this.runOrderRepository = runOrderRepository;
         this.dispatchService = dispatchService;
         this.redisTemplate = redisTemplate;
+        this.schedulerLockService = schedulerLockService;
     }
+
+    // 锁 TTL = 10s（调度间隔 5s 的 2 倍），任务崩溃后最多 10s 内另一实例可接管
+    private static final long LOCK_TTL_SECONDS = 10;
 
     @Scheduled(fixedDelayString = "${app.dispatch.scheduler-poll-interval-ms:5000}")
     public void processDispatchQueue() {
+        if (!schedulerLockService.tryLock("dispatchQueue", LOCK_TTL_SECONDS)) return;
+        try {
         List<RunOrder> activeOrders = runOrderRepository
                 .findByStatusAndDispatchStartedAtNotNull(OrderStatus.PENDING_MATCH);
 
@@ -54,19 +63,17 @@ public class DispatchScheduler {
                     dispatchService.handleVolunteerTimeout(order.getId());
                 } else if (currentVol == null && order.getDispatchCurrentVolunteerId() == null) {
                     // 情况2：崩溃恢复 — DB 有 dispatchStartedAt 但无 Redis 状态
-                    // 检查队列是否还有数据
-                    String queueKey = String.format(DispatchService.QUEUE_KEY, order.getId());
-                    Long queueSize = redisTemplate.opsForList().size(queueKey);
-                    if (queueSize != null && queueSize > 0) {
-                        log.info("订单 {} 崩溃恢复：重新开始派单", order.getId());
-                        dispatchService.dispatchToNext(order);
-                    }
-                    // 队列也为空的话由 tryExpandRound 处理
+                    // 直接调用 dispatchToNext：队列有数据则推送下一位，否则内部调用 tryExpandRound
+                    log.info("订单 {} 崩溃恢复：重新开始派单", order.getId());
+                    dispatchService.dispatchToNext(order);
                 }
                 // else: 当前志愿者还在 30s 窗口内，不操作
             } catch (Exception e) {
                 log.warn("DispatchScheduler 处理订单 {} 异常: {}", order.getId(), e.getMessage());
             }
+        }
+        } finally {
+            schedulerLockService.releaseLock("dispatchQueue");
         }
     }
 }

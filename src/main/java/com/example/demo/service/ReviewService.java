@@ -26,13 +26,16 @@ public class ReviewService {
     private final OrderReviewRepository orderReviewRepository;
     private final RunOrderRepository runOrderRepository;
     private final VolunteerProfileRepository volunteerProfileRepository;
+    private final DispatchService dispatchService;
 
     public ReviewService(OrderReviewRepository orderReviewRepository,
                          RunOrderRepository runOrderRepository,
-                         VolunteerProfileRepository volunteerProfileRepository) {
+                         VolunteerProfileRepository volunteerProfileRepository,
+                         DispatchService dispatchService) {
         this.orderReviewRepository = orderReviewRepository;
         this.runOrderRepository = runOrderRepository;
         this.volunteerProfileRepository = volunteerProfileRepository;
+        this.dispatchService = dispatchService;
     }
 
     /**
@@ -72,24 +75,11 @@ public class ReviewService {
 
         orderReviewRepository.save(review);
 
-        // 更新志愿者的聚合评分
-        updateVolunteerRating(order.getVolunteer().getId(), rating);
-    }
-
-    /**
-     * 评价保存后，更新志愿者档案的平均评分和评价总数
-     */
-    private void updateVolunteerRating(Long volunteerId, int rating) {
-        volunteerProfileRepository.findByUserId(volunteerId).ifPresent(profile -> {
-            int total = profile.getTotalRatings() != null ? profile.getTotalRatings() : 0;
-            double avg = profile.getAvgRating() != null ? profile.getAvgRating() : 0.0;
-            int newTotal = total + 1;
-            double newAvg = ((avg * total) + rating) / newTotal;
-            profile.setTotalRatings(newTotal);
-            profile.setAvgRating(Math.round(newAvg * 10.0) / 10.0);
-            volunteerProfileRepository.save(profile);
-            log.info("志愿者 {} 评分更新: avgRating={}, totalRatings={}", volunteerId, newAvg, newTotal);
-        });
+        // 原子更新志愿者聚合评分，并清除派单 Profile 缓存
+        Long volunteerId = order.getVolunteer().getId();
+        volunteerProfileRepository.atomicUpdateRating(volunteerId, rating);
+        dispatchService.evictProfileCache(volunteerId);
+        log.info("志愿者 {} 评分已更新（原子 JPQL），派单缓存已清除", volunteerId);
     }
 
     /**

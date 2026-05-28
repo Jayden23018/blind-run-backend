@@ -1,6 +1,7 @@
 package com.example.demo.websocket;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
@@ -12,92 +13,108 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 统一 WebSocket 会话注册表 —— 管理所有用户（盲人、志愿者、客服）的 WebSocket 连接
- * 在原有 VolunteerSessionRegistry 基础上扩展，支持多角色多频道推送
+ * 统一 WebSocket 会话注册表 —— 管理本机所有用户的 WebSocket 连接
+ *
+ * 多实例部署时：
+ * - sendToUser()：先查本机 session；找不到则通过 WebSocketMessageBroker 发布到 Redis，
+ *   由持有该 session 的实例负责最终投递
+ * - sendToCs()：始终通过 Redis 广播，所有实例各自投递给本机 CS session
+ * - sendToLocalUser() / sendToLocalCs()：仅操作本机 session（供 Redis 订阅回调调用）
  */
 @Slf4j
 @Component
 public class UnifiedSessionRegistry {
 
-    /** 用户ID → WebSocket 会话 的映射表（所有角色共用） */
     private final ConcurrentHashMap<Long, WebSocketSession> userSessions = new ConcurrentHashMap<>();
-
-    /** 客服ID 列表（用于广播紧急事件） */
     private final ConcurrentHashMap<Long, WebSocketSession> csSessions = new ConcurrentHashMap<>();
 
-    /**
-     * 注册用户连接
-     */
+    // @Lazy：WebSocketMessageBroker 也依赖本类，@Lazy 延迟注入打破循环依赖
+    private final WebSocketMessageBroker messageBroker;
+
+    public UnifiedSessionRegistry(@Lazy WebSocketMessageBroker messageBroker) {
+        this.messageBroker = messageBroker;
+    }
+
     public void register(Long userId, WebSocketSession session, String role) {
         WebSocketSession oldSession = userSessions.put(userId, session);
         if (oldSession != null && oldSession.isOpen()) {
-            try {
-                oldSession.close();
-            } catch (IOException e) {
-                log.warn("关闭用户 {} 的旧 WebSocket 连接失败", userId);
+            try { oldSession.close(); } catch (IOException e) {
+                log.warn("关闭用户 {} 旧 WebSocket 连接失败", userId);
             }
         }
-
-        // 如果是客服，同时注册到客服列表
         if ("CS".equals(role)) {
             csSessions.put(userId, session);
         }
-
-        log.info("用户 {} (role={}) WebSocket 已连接，当前在线: {}", userId, role, userSessions.size());
+        log.info("用户 {} (role={}) WebSocket 已连接，本机在线: {}", userId, role, userSessions.size());
     }
 
-    /**
-     * 注册用户连接（无角色参数，默认普通用户）
-     */
     public void register(Long userId, WebSocketSession session) {
         register(userId, session, null);
     }
 
-    /**
-     * 注销用户连接
-     */
     public void unregister(Long userId) {
         userSessions.remove(userId);
         csSessions.remove(userId);
-        log.info("用户 {} WebSocket 已断开，当前在线: {}", userId, userSessions.size());
+        log.info("用户 {} WebSocket 已断开，本机在线: {}", userId, userSessions.size());
     }
 
-    /**
-     * 获取用户的 WebSocket 会话
-     */
     public Optional<WebSocketSession> getSession(Long userId) {
         return Optional.ofNullable(userSessions.get(userId));
     }
 
     /**
-     * 向指定用户发送消息
+     * 向指定用户发送消息（支持跨实例）
+     *
+     * 本机有 session → 直接发送；
+     * 本机无 session → 发布到 Redis，其他实例处理。
      */
     public void sendToUser(Long userId, String message) {
-        Optional<WebSocketSession> sessionOpt = getSession(userId);
-        if (sessionOpt.isEmpty()) {
-            log.debug("用户 {} 未连接 WebSocket，跳过推送", userId);
-            return;
-        }
+        if (sendToLocalUser(userId, message)) return;
+        // 本机未找到，转发给其他实例
+        messageBroker.publishToUser(userId, message);
+    }
 
-        WebSocketSession session = sessionOpt.get();
+    /**
+     * 仅向本机 session 发送消息，不转发 Redis
+     * 供 WebSocketMessageBroker 的订阅回调调用，避免消息在实例间循环传播
+     *
+     * @return true 表示找到本机 session 并成功发送（或发送失败已清理）；false 表示本机无此用户
+     */
+    public boolean sendToLocalUser(Long userId, String message) {
+        WebSocketSession session = userSessions.get(userId);
+        if (session == null) {
+            log.debug("用户 {} 未在本机连接 WebSocket", userId);
+            return false;
+        }
         if (!session.isOpen()) {
             userSessions.remove(userId);
-            return;
+            return false;
         }
-
         try {
             session.sendMessage(new TextMessage(message));
-            log.debug("已向用户 {} 推送消息", userId);
+            log.debug("已向用户 {} 推送消息（本机）", userId);
+            return true;
         } catch (IOException e) {
             log.warn("向用户 {} 推送消息失败: {}", userId, e.getMessage());
             userSessions.remove(userId);
+            return false;
         }
     }
 
     /**
-     * 向所有在线客服广播消息（紧急事件用）
+     * 向所有在线客服广播消息（跨实例）
+     *
+     * 始终通过 Redis 广播：所有实例（包括本机）都会收到消息并向自己的本机 CS session 投递。
+     * 这样无需维护全局 CS 在线列表，每个实例只管自己的。
      */
     public void sendToCs(String message) {
+        messageBroker.publishToCs(message);
+    }
+
+    /**
+     * 仅向本机 CS session 广播，供 Redis 订阅回调调用
+     */
+    public void sendToLocalCs(String message) {
         List<Long> toRemove = new ArrayList<>();
         for (var entry : csSessions.entrySet()) {
             if (entry.getValue().isOpen()) {
@@ -111,20 +128,9 @@ public class UnifiedSessionRegistry {
             }
         }
         toRemove.forEach(csSessions::remove);
-        log.debug("已向 {} 名客服广播消息", csSessions.size());
+        log.debug("已向本机 {} 名客服广播消息", csSessions.size());
     }
 
-    /**
-     * 获取在线用户数
-     */
-    public int getOnlineCount() {
-        return userSessions.size();
-    }
-
-    /**
-     * 获取在线客服数
-     */
-    public int getOnlineCsCount() {
-        return csSessions.size();
-    }
+    public int getOnlineCount() { return userSessions.size(); }
+    public int getOnlineCsCount() { return csSessions.size(); }
 }

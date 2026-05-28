@@ -8,6 +8,7 @@ import com.example.demo.repository.EmergencyEventRepository;
 import com.example.demo.repository.RunOrderRepository;
 import com.example.demo.service.EmergencyService;
 import com.example.demo.service.OrderLifecycleService;
+import com.example.demo.service.SchedulerLockService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -30,15 +31,18 @@ public class TimeoutScheduler {
     private final RunOrderRepository runOrderRepository;
     private final EmergencyService emergencyService;
     private final OrderLifecycleService orderLifecycleService;
+    private final SchedulerLockService schedulerLockService;
 
     public TimeoutScheduler(EmergencyEventRepository eventRepository,
                              RunOrderRepository runOrderRepository,
                              EmergencyService emergencyService,
-                             OrderLifecycleService orderLifecycleService) {
+                             OrderLifecycleService orderLifecycleService,
+                             SchedulerLockService schedulerLockService) {
         this.eventRepository = eventRepository;
         this.runOrderRepository = runOrderRepository;
         this.emergencyService = emergencyService;
         this.orderLifecycleService = orderLifecycleService;
+        this.schedulerLockService = schedulerLockService;
     }
 
     /**
@@ -46,16 +50,20 @@ public class TimeoutScheduler {
      */
     @Scheduled(fixedDelay = 10000)
     public void checkEmergencyTimeout() {
-        List<EmergencyEvent> timedOut = eventRepository
-                .findByStatusAndVolunteerTimeoutAtBefore(
-                        EmergencyStatus.VOLUNTEER_NOTIFIED, LocalDateTime.now());
-
-        for (EmergencyEvent event : timedOut) {
-            try {
-                emergencyService.handleVolunteerTimeout(event.getId());
-            } catch (Exception e) {
-                log.warn("处理紧急事件 {} 志愿者超时失败: {}", event.getId(), e.getMessage());
+        if (!schedulerLockService.tryLock("emergencyTimeout", 15)) return;
+        try {
+            List<EmergencyEvent> timedOut = eventRepository
+                    .findByStatusAndVolunteerTimeoutAtBefore(
+                            EmergencyStatus.VOLUNTEER_NOTIFIED, LocalDateTime.now());
+            for (EmergencyEvent event : timedOut) {
+                try {
+                    emergencyService.handleVolunteerTimeout(event.getId());
+                } catch (Exception e) {
+                    log.warn("处理紧急事件 {} 志愿者超时失败: {}", event.getId(), e.getMessage());
+                }
             }
+        } finally {
+            schedulerLockService.releaseLock("emergencyTimeout");
         }
     }
 
@@ -64,16 +72,20 @@ public class TimeoutScheduler {
      */
     @Scheduled(fixedDelay = 10000)
     public void checkRematchTimeout() {
-        List<RunOrder> orders = runOrderRepository
-                .findByStatusAndRematchNotifyAtBefore(
-                        OrderStatus.REMATCHING, LocalDateTime.now());
-
-        for (RunOrder order : orders) {
-            try {
-                orderLifecycleService.handleRematchTimeout(order.getId());
-            } catch (Exception e) {
-                log.warn("处理订单 {} 重新匹配超时失败: {}", order.getId(), e.getMessage());
+        if (!schedulerLockService.tryLock("rematchTimeout", 15)) return;
+        try {
+            List<RunOrder> orders = runOrderRepository
+                    .findByStatusAndRematchNotifyAtBefore(
+                            OrderStatus.REMATCHING, LocalDateTime.now());
+            for (RunOrder order : orders) {
+                try {
+                    orderLifecycleService.handleRematchTimeout(order.getId());
+                } catch (Exception e) {
+                    log.warn("处理订单 {} 重新匹配超时失败: {}", order.getId(), e.getMessage());
+                }
             }
+        } finally {
+            schedulerLockService.releaseLock("rematchTimeout");
         }
     }
 
@@ -82,18 +94,21 @@ public class TimeoutScheduler {
      */
     @Scheduled(fixedDelay = 10000)
     public void checkMatchTimeout() {
-        List<RunOrder> orders = runOrderRepository
-                .findByStatusAndMatchNotifyAtBefore(
-                        OrderStatus.PENDING_MATCH, LocalDateTime.now());
-
-        for (RunOrder order : orders) {
-            // 跳过由 DispatchScheduler 管理的派单订单
-            if (order.getDispatchStartedAt() != null) continue;
-            try {
-                orderLifecycleService.handleMatchTimeout(order.getId());
-            } catch (Exception e) {
-                log.warn("处理订单 {} 匹配超时失败: {}", order.getId(), e.getMessage());
+        if (!schedulerLockService.tryLock("matchTimeout", 15)) return;
+        try {
+            List<RunOrder> orders = runOrderRepository
+                    .findByStatusAndMatchNotifyAtBefore(
+                            OrderStatus.PENDING_MATCH, LocalDateTime.now());
+            for (RunOrder order : orders) {
+                if (order.getDispatchStartedAt() != null) continue;
+                try {
+                    orderLifecycleService.handleMatchTimeout(order.getId());
+                } catch (Exception e) {
+                    log.warn("处理订单 {} 匹配超时失败: {}", order.getId(), e.getMessage());
+                }
             }
+        } finally {
+            schedulerLockService.releaseLock("matchTimeout");
         }
     }
 
@@ -102,17 +117,21 @@ public class TimeoutScheduler {
      */
     @Scheduled(fixedDelay = 60000)
     public void checkOverdueOrders() {
-        LocalDateTime threshold = LocalDateTime.now().minusHours(1);
-        List<RunOrder> orders = runOrderRepository
-                .findByStatusAndPlannedEndTimeBeforeAndOverdueNotifiedFalse(
-                        OrderStatus.IN_PROGRESS, threshold);
-
-        for (RunOrder order : orders) {
-            try {
-                orderLifecycleService.handleOverdueOrder(order.getId());
-            } catch (Exception e) {
-                log.warn("处理订单 {} 超时挂起失败: {}", order.getId(), e.getMessage());
+        if (!schedulerLockService.tryLock("overdueOrders", 120)) return;
+        try {
+            LocalDateTime threshold = LocalDateTime.now().minusHours(1);
+            List<RunOrder> orders = runOrderRepository
+                    .findByStatusAndPlannedEndTimeBeforeAndOverdueNotifiedFalse(
+                            OrderStatus.IN_PROGRESS, threshold);
+            for (RunOrder order : orders) {
+                try {
+                    orderLifecycleService.handleOverdueOrder(order.getId());
+                } catch (Exception e) {
+                    log.warn("处理订单 {} 超时挂起失败: {}", order.getId(), e.getMessage());
+                }
             }
+        } finally {
+            schedulerLockService.releaseLock("overdueOrders");
         }
     }
 }

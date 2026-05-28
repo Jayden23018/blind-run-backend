@@ -123,6 +123,7 @@ public class VolunteerWebSocketHandler extends TextWebSocketHandler {
         if (userId != null) {
             sessionRegistry.unregister(userId);
             lastMessageTime.remove(userId);
+            volunteerLocationService.setOffline(userId);
         }
     }
 

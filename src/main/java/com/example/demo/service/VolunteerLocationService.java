@@ -10,12 +10,22 @@ import com.example.demo.repository.VolunteerLocationRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+
+import org.springframework.data.geo.Circle;
+import org.springframework.data.geo.Distance;
+import org.springframework.data.geo.GeoResults;
+import org.springframework.data.geo.Metrics;
+import org.springframework.data.geo.Point;
+import org.springframework.data.redis.connection.RedisGeoCommands.GeoLocation;
 
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * 志愿者位置服务 —— 处理位置上报和查询
@@ -49,6 +59,9 @@ public class VolunteerLocationService {
     /** Redis key 前缀 */
     private static final String REDIS_KEY_PREFIX = "vol:loc:";
 
+    /** GEO 集合 key：存储所有在线志愿者的地理坐标 */
+    private static final String GEO_KEY = "volunteers:geo";
+
     /** 志愿者位置 Redis TTL（秒） */
     @Value("${app.volunteer.location-ttl-seconds:30}")
     private long locationTtlSeconds;
@@ -69,6 +82,30 @@ public class VolunteerLocationService {
         this.notificationService = notificationService;
         this.proximityService = proximityService;
         this.blindLocationService = blindLocationService;
+    }
+
+    /**
+     * 应用启动完成后清空 GEO 集合
+     *
+     * 问题背景（C3）：服务器重启后 vol:loc:* 键全部消失（TTL 到期），
+     * 但 GEO 集合仍保留上次运行期间的所有成员。
+     * 若不清空，GEORADIUS 会返回已全部离线的旧成员，导致派单向无效志愿者推送。
+     *
+     * 解决方案：启动时清空 GEO 集合，让它随志愿者重新上线后自然重建。
+     * 使用 ApplicationReadyEvent（而非 @PostConstruct）确保 Redis 连接已就绪。
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void clearGeoSetOnStartup() {
+        try {
+            Boolean deleted = redisTemplate.delete(GEO_KEY);
+            if (Boolean.TRUE.equals(deleted)) {
+                log.info("应用启动：GEO 集合已清空，待志愿者重新上线后自动重建");
+            } else {
+                log.info("应用启动：GEO 集合不存在，无需清空");
+            }
+        } catch (Exception e) {
+            log.warn("应用启动时清空 GEO 集合失败（不影响启动）: {}", e.getMessage());
+        }
     }
 
     /**
@@ -121,6 +158,9 @@ public class VolunteerLocationService {
             String json = objectMapper.writeValueAsString(value);
             redisTemplate.opsForValue().set(key, json, locationTtlSeconds, TimeUnit.SECONDS);
 
+            // 同步更新 GEO 集合（Point 参数顺序：longitude 在前，latitude 在后）
+            redisTemplate.opsForGeo().add(GEO_KEY, new Point(longitude, latitude), String.valueOf(userId));
+
             log.debug("志愿者 {} 位置已更新: lat={}, lng={}", userId, latitude, longitude);
         } catch (Exception e) {
             // Redis 写入失败不影响主流程，记录警告日志
@@ -142,10 +182,11 @@ public class VolunteerLocationService {
             locationRepository.save(loc);
         });
 
-        // 2. 删除 Redis 位置 key
+        // 2. 删除 Redis 位置 key 并移出 GEO 集合
         try {
             redisTemplate.delete(REDIS_KEY_PREFIX + userId);
-            log.debug("志愿者 {} 订单完成，已设为离线", userId);
+            redisTemplate.opsForGeo().remove(GEO_KEY, String.valueOf(userId));
+            log.debug("志愿者 {} 已设为离线", userId);
         } catch (Exception e) {
             log.warn("清除志愿者 {} Redis 位置失败: {}", userId, e.getMessage());
         }
@@ -312,5 +353,84 @@ public class VolunteerLocationService {
 
         log.debug("从数据库获取到 {} 名在线志愿者", result.size());
         return result;
+    }
+
+    /**
+     * 获取指定坐标 radiusKm 范围内的在线志愿者（基于 Redis GEO）
+     *
+     * 流程：
+     * 1. GEOSEARCH 返回 GEO 集合中半径内的成员 ID 列表
+     * 2. MGET 批量检查哪些仍有 vol:loc:{id} key（TTL 未过期 = 仍在线）
+     * 3. 懒清理：移除已过期成员（避免 GEO 集合无限膨胀）
+     * 4. GEO 集合不存在时降级到全量 SCAN（首次启动或 Redis 重启后的过渡期）
+     *
+     * @param lat      订单起点纬度
+     * @param lng      订单起点经度
+     * @param radiusKm 搜索半径（公里）
+     * @return 在线志愿者位置信息列表（与 getOnlineVolunteerLocations 格式一致）
+     */
+    public List<Map<String, Object>> getVolunteersNear(double lat, double lng, double radiusKm) {
+        try {
+            // GEO 集合不存在（Redis 重启或首次部署），降级全量 SCAN
+            if (!Boolean.TRUE.equals(redisTemplate.hasKey(GEO_KEY))) {
+                log.debug("GEO集合不存在，降级到全量SCAN");
+                return getOnlineVolunteerLocations();
+            }
+
+            // GEORADIUS：Point 参数顺序 longitude, latitude
+            Circle within = new Circle(new Point(lng, lat), new Distance(radiusKm, Metrics.KILOMETERS));
+            GeoResults<GeoLocation<String>> geoResults = redisTemplate.opsForGeo().radius(GEO_KEY, within);
+            if (geoResults == null || geoResults.getContent().isEmpty()) {
+                return List.of();
+            }
+
+            List<String> memberIds = geoResults.getContent().stream()
+                    .map(r -> r.getContent().getName())
+                    .collect(Collectors.toList());
+
+            // MGET 批量检查在线状态（一次网络往返）
+            List<String> locKeys = memberIds.stream()
+                    .map(id -> REDIS_KEY_PREFIX + id)
+                    .collect(Collectors.toList());
+            List<String> locJsons = redisTemplate.opsForValue().multiGet(locKeys);
+
+            List<Map<String, Object>> result = new ArrayList<>();
+            List<String> stale = new ArrayList<>();
+
+            for (int i = 0; i < memberIds.size(); i++) {
+                String json = locJsons != null ? locJsons.get(i) : null;
+                if (json == null) {
+                    stale.add(memberIds.get(i));  // vol:loc 已过期，加入懒清理列表
+                    continue;
+                }
+                try {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> data = objectMapper.readValue(json, Map.class);
+                    if (Boolean.TRUE.equals(data.get("isOnline"))) {
+                        result.add(data);
+                    }
+                } catch (Exception e) {
+                    log.warn("解析志愿者位置数据失败: {}", e.getMessage());
+                }
+            }
+
+            // 懒清理：将 vol:loc 已过期的成员从 GEO 集合中移除
+            if (!stale.isEmpty()) {
+                try {
+                    redisTemplate.opsForGeo().remove(GEO_KEY, stale.toArray(new String[0]));
+                    log.debug("GEO懒清理：移除 {} 个已离线成员", stale.size());
+                } catch (Exception e) {
+                    log.warn("GEO懒清理失败: {}", e.getMessage());
+                }
+            }
+
+            log.debug("GEO查询 {}km 内在线志愿者: {} 人（过期清理 {} 人）",
+                    radiusKm, result.size(), stale.size());
+            return result;
+
+        } catch (Exception e) {
+            log.warn("GEO查询失败，降级到全量SCAN: {}", e.getMessage());
+            return getOnlineVolunteerLocations();
+        }
     }
 }

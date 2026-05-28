@@ -86,7 +86,6 @@ public class OrderLifecycleService {
                 .orElseThrow(() -> new OrderNotFoundException("订单不存在，ID: " + orderId));
 
         if (order.getStatus() != OrderStatus.PENDING_MATCH
-                && order.getStatus() != OrderStatus.PENDING_ACCEPT
                 && order.getStatus() != OrderStatus.REMATCHING) {
             throw new OrderStatusException("订单已被其他志愿者接单或已取消");
         }
@@ -184,7 +183,6 @@ public class OrderLifecycleService {
         runOrderRepository.save(order);
 
         proximityService.clearProximityFlag(orderId);
-        volunteerLocationService.setOffline(volunteerId);
         statusLogService.logStatusChange(orderId, oldStatus, "COMPLETED", volunteerId, "服务完成");
         notificationService.sendNotification(order.getBlindUser().getId(), "ORDER_COMPLETED", TargetRole.BLIND_USER, null);
 
@@ -233,34 +231,23 @@ public class OrderLifecycleService {
                 throw new OrderStatusException("当前订单状态不允许取消");
             }
 
-            if (status == OrderStatus.IN_PROGRESS) {
-                order.setCancelledBy(CancelledBy.VOLUNTEER);
-                String oldStatus = order.getStatus().name();
-                order.setStatus(OrderStatus.CANCELLED);
-                runOrderRepository.save(order);
-                statusLogService.logStatusChange(orderId, oldStatus, "CANCELLED", userId,
-                        "取消方=" + order.getCancelledBy());
-                notificationService.sendNotification(order.getBlindUser().getId(), "VOLUNTEER_CANCELLED", TargetRole.BLIND_USER, null);
-                proximityService.clearProximityFlag(orderId);
-                log.info("订单 {} 已取消（IN_PROGRESS），取消方=VOLUNTEER", orderId);
-            } else {
-                String oldStatus = order.getStatus().name();
-                order.setVolunteer(null);
-                order.setCancelledBy(CancelledBy.VOLUNTEER);
-                order.setRematchCount(order.getRematchCount() != null ? order.getRematchCount() + 1 : 1);
-                order.setLastRematchAt(LocalDateTime.now());
-                order.setRematchNotifyAt(LocalDateTime.now().plusSeconds(rematchTimeoutSeconds));
-                order.setStatus(OrderStatus.REMATCHING);
-                runOrderRepository.save(order);
+            // 任何阶段志愿者取消均进入 REMATCHING，给盲人重新匹配机会
+            String oldStatus = order.getStatus().name();
+            order.setVolunteer(null);
+            order.setCancelledBy(CancelledBy.VOLUNTEER);
+            order.setRematchCount(order.getRematchCount() != null ? order.getRematchCount() + 1 : 1);
+            order.setLastRematchAt(LocalDateTime.now());
+            order.setRematchNotifyAt(LocalDateTime.now().plusSeconds(rematchTimeoutSeconds));
+            order.setStatus(OrderStatus.REMATCHING);
+            runOrderRepository.save(order);
 
-                statusLogService.logStatusChange(orderId, oldStatus, "REMATCHING", userId,
-                        "志愿者取消，进入重新匹配，第" + order.getRematchCount() + "次");
-                notificationService.sendNotification(order.getBlindUser().getId(), "REMATCHING", TargetRole.BLIND_USER, null);
-                eventPublisher.publishEvent(new OrderCreatedEvent(this, order));
-                proximityService.clearProximityFlag(orderId);
-                log.info("订单 {} 志愿者取消 → REMATCHING，原状态={}，第{}次重新匹配",
-                        orderId, oldStatus, order.getRematchCount());
-            }
+            statusLogService.logStatusChange(orderId, oldStatus, "REMATCHING", userId,
+                    "志愿者取消，进入重新匹配，第" + order.getRematchCount() + "次");
+            notificationService.sendNotification(order.getBlindUser().getId(), "REMATCHING", TargetRole.BLIND_USER, null);
+            eventPublisher.publishEvent(new OrderCreatedEvent(this, order));
+            proximityService.clearProximityFlag(orderId);
+            log.info("订单 {} 志愿者取消 → REMATCHING，原状态={}，第{}次重新匹配",
+                    orderId, oldStatus, order.getRematchCount());
         }
     }
 
@@ -307,7 +294,7 @@ public class OrderLifecycleService {
         if (notifyCount > MAX_MATCH_NOTIFY_COUNT) {
             String oldStatus = order.getStatus().name();
             order.setStatus(OrderStatus.CANCELLED);
-            order.setCancelledBy(CancelledBy.BLIND);
+            order.setCancelledBy(CancelledBy.SYSTEM);
             order.setMatchNotifyAt(null);
             runOrderRepository.save(order);
             statusLogService.logStatusChange(orderId, oldStatus, "CANCELLED", null, "匹配超时自动取消");

@@ -123,7 +123,7 @@ class OrderCancelTest {
         assertEquals(CancelledBy.BLIND, order.getCancelledBy());
     }
 
-    /** 志愿者在 IN_PROGRESS 取消 → CANCELLED（爽约） */
+    /** 志愿者在 IN_PROGRESS 取消 → REMATCHING（与其他阶段保持一致） */
     @Test
     void testVolunteerCancelInProgress() {
         User blindUser = new User();
@@ -143,8 +143,11 @@ class OrderCancelTest {
 
         orderLifecycleService.cancelOrder(1001L, 2L);
 
-        assertEquals(OrderStatus.CANCELLED, order.getStatus());
+        assertEquals(OrderStatus.REMATCHING, order.getStatus());
         assertEquals(CancelledBy.VOLUNTEER, order.getCancelledBy());
+        assertNull(order.getVolunteer());
+        assertEquals(1, order.getRematchCount());
+        assertNotNull(order.getLastRematchAt());
     }
 
     /** 志愿者在 PENDING_ACCEPT 取消 → REMATCHING */

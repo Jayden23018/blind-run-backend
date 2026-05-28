@@ -29,15 +29,18 @@ public class VolunteerService {
     private final VolunteerAvailableTimeRepository volunteerAvailableTimeRepository;
     private final UserRepository userRepository;
     private final FileStorageService fileStorageService;
+    private final DispatchService dispatchService;
 
     public VolunteerService(VolunteerProfileRepository volunteerProfileRepository,
                             VolunteerAvailableTimeRepository volunteerAvailableTimeRepository,
                             UserRepository userRepository,
-                            FileStorageService fileStorageService) {
+                            FileStorageService fileStorageService,
+                            DispatchService dispatchService) {
         this.volunteerProfileRepository = volunteerProfileRepository;
         this.volunteerAvailableTimeRepository = volunteerAvailableTimeRepository;
         this.userRepository = userRepository;
         this.fileStorageService = fileStorageService;
+        this.dispatchService = dispatchService;
     }
 
     /**
@@ -81,6 +84,7 @@ public class VolunteerService {
         if (request.getAcceptsGuideDog() != null) profile.setAcceptsGuideDog(request.getAcceptsGuideDog());
         if (request.getPaceRange() != null) profile.setPaceRange(request.getPaceRange());
         volunteerProfileRepository.save(profile);
+        dispatchService.evictProfileCache(userId);
 
         // 替换可用时间段：先删后插
         volunteerAvailableTimeRepository.deleteByVolunteerId(userId);
@@ -124,6 +128,7 @@ public class VolunteerService {
         profile.setVerificationStatus(VerificationStatus.PENDING);
         profile.setVerified(false); // 明确重置，防止状态不一致
         volunteerProfileRepository.save(profile);
+        dispatchService.evictProfileCache(userId);
 
         return VerificationStatus.PENDING.name();
     }
