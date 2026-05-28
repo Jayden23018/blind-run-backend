@@ -3,6 +3,7 @@ package com.example.demo.service;
 import com.example.demo.dto.RespondAction;
 import com.example.demo.dto.ScoredCandidate;
 import com.example.demo.entity.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.example.demo.event.DispatchAcceptedEvent;
 import com.example.demo.repository.RunOrderRepository;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -43,6 +44,7 @@ public class DispatchService {
     private final StringRedisTemplate redisTemplate;
     private final NotificationService notificationService;
     private final ApplicationEventPublisher eventPublisher;
+    private final ObjectMapper objectMapper;
 
     @Value("${app.dispatch.per-volunteer-timeout-seconds:30}")
     private int perVolunteerTimeoutSeconds;
@@ -72,7 +74,8 @@ public class DispatchService {
                            RunOrderRepository runOrderRepository,
                            StringRedisTemplate redisTemplate,
                            NotificationService notificationService,
-                           ApplicationEventPublisher eventPublisher) {
+                           ApplicationEventPublisher eventPublisher,
+                           ObjectMapper objectMapper) {
         this.scoringService = scoringService;
         this.volunteerLocationService = volunteerLocationService;
         this.volunteerProfileRepository = volunteerProfileRepository;
@@ -81,6 +84,7 @@ public class DispatchService {
         this.redisTemplate = redisTemplate;
         this.notificationService = notificationService;
         this.eventPublisher = eventPublisher;
+        this.objectMapper = objectMapper;
     }
 
     // ===== Redis Key 模板 =====
@@ -88,6 +92,10 @@ public class DispatchService {
     public static final String CURRENT_KEY = "order:dispatch:current:%d";
     public static final String ROUND_KEY = "order:dispatch:round:%d";
     public static final String LOCK_KEY = "order:dispatch:lock:%d";
+
+    // ===== 志愿者资料缓存 =====
+    static final String PROFILE_CACHE_PREFIX = "vol:profile:";
+    private static final long PROFILE_CACHE_TTL_MINUTES = 10;
 
     // ===== 公共 API =====
 
@@ -145,8 +153,9 @@ public class DispatchService {
                     order.setDispatchCurrentVolunteerId(null);
                     runOrderRepository.save(order);
 
-                    // 4. 更新志愿者接单统计
+                    // 4. 更新志愿者接单统计，并使 profile 缓存失效（统计数据已变）
                     updateAcceptStats(volunteerId);
+                    evictProfileCache(volunteerId);
 
                     // 5. DB 保存成功，清理 Redis 派单状态
                     clearDispatchState(orderId);
@@ -178,8 +187,9 @@ public class DispatchService {
             throw new IllegalStateException("该订单当前未派送给您");
         }
 
-        // 更新拒绝统计
+        // 更新拒绝统计，并使 profile 缓存失效
         updateDeclineStats(volunteerId);
+        evictProfileCache(volunteerId);
 
         // 清除当前派送
         redisTemplate.delete(String.format(CURRENT_KEY, orderId));
@@ -209,6 +219,7 @@ public class DispatchService {
         Long timedOutVolunteer = order.getDispatchCurrentVolunteerId();
         if (timedOutVolunteer != null) {
             updateDeclineStats(timedOutVolunteer);
+            evictProfileCache(timedOutVolunteer);
             log.info("志愿者 {} 对订单 {} 响应超时", timedOutVolunteer, orderId);
         }
 
@@ -255,25 +266,25 @@ public class DispatchService {
         double distanceKm = getDistanceForRound(round);
         double minOverlap = getOverlapForRound(round);
 
-        // 1. 获取在线且开启接单的志愿者位置
-        List<Map<String, Object>> locations = volunteerLocationService.getOnlineVolunteerLocations()
+        // 1. GEO 查询：只取订单起点半径内的在线志愿者（替代全量 SCAN）
+        List<Map<String, Object>> locations = volunteerLocationService
+                .getVolunteersNear(order.getStartLatitude(), order.getStartLongitude(), distanceKm)
                 .stream()
                 .filter(loc -> !Boolean.FALSE.equals(loc.get("wantsDispatch")))
                 .toList();
         if (locations.isEmpty()) {
-            log.info("订单 {} 第 {} 轮：无在线且接单中的志愿者", order.getId(), round);
+            log.info("订单 {} 第 {} 轮：{}km 内无在线且接单中的志愿者", order.getId(), round, distanceKm);
             return;
         }
 
-        // 2. 批量加载档案和可用时间
+        // 2. 从缓存（优先）或 DB（兜底）加载志愿者资料
         Set<Long> volunteerIds = new HashSet<>();
         for (Map<String, Object> loc : locations) {
             Object id = loc.get("userId");
             if (id instanceof Number n) volunteerIds.add(n.longValue());
         }
 
-        Map<Long, VolunteerProfile> profiles = volunteerProfileRepository.findByUserIdIn(volunteerIds)
-                .stream().collect(Collectors.toMap(VolunteerProfile::getUserId, p -> p));
+        Map<Long, VolunteerProfile> profiles = loadProfilesCached(volunteerIds);
 
         List<VolunteerAvailableTime> allSlots = availableTimeRepository.findByVolunteerIdIn(volunteerIds);
         Map<Long, List<VolunteerAvailableTime>> availability = allSlots.stream()
@@ -401,7 +412,7 @@ public class DispatchService {
     void handleNoMatch(RunOrder order) {
         order.setStatus(OrderStatus.NO_VOLUNTEER);
         order.setDispatchCurrentVolunteerId(null);
-        order.setCancelledBy(CancelledBy.BLIND); // 系统自动取消
+        order.setCancelledBy(CancelledBy.SYSTEM);
         runOrderRepository.save(order);
         clearDispatchState(order.getId());
 
@@ -436,26 +447,11 @@ public class DispatchService {
     // ===== 统计更新 =====
 
     private void updateAcceptStats(Long volunteerId) {
-        volunteerProfileRepository.findByUserId(volunteerId).ifPresent(profile -> {
-            int dispatched = safeInt(profile.getTotalDispatched()) + 1;
-            int accepted = safeInt(profile.getTotalAccepted()) + 1;
-            profile.setTotalDispatched(dispatched);
-            profile.setTotalAccepted(accepted);
-            profile.setAcceptanceRate((double) accepted / dispatched);
-            volunteerProfileRepository.save(profile);
-        });
+        volunteerProfileRepository.atomicIncrementAcceptStats(volunteerId);
     }
 
     private void updateDeclineStats(Long volunteerId) {
-        volunteerProfileRepository.findByUserId(volunteerId).ifPresent(profile -> {
-            int dispatched = safeInt(profile.getTotalDispatched()) + 1;
-            int declined = safeInt(profile.getTotalDeclined()) + 1;
-            profile.setTotalDispatched(dispatched);
-            profile.setTotalDeclined(declined);
-            int accepted = safeInt(profile.getTotalAccepted());
-            profile.setAcceptanceRate(dispatched > 0 ? (double) accepted / dispatched : 0);
-            volunteerProfileRepository.save(profile);
-        });
+        volunteerProfileRepository.atomicIncrementDeclineStats(volunteerId);
     }
 
     // ===== 工具方法 =====
@@ -465,6 +461,101 @@ public class DispatchService {
         redisTemplate.delete(String.format(CURRENT_KEY, orderId));
         redisTemplate.delete(String.format(ROUND_KEY, orderId));
         redisTemplate.delete(String.format(LOCK_KEY, orderId));
+    }
+
+    /** 主动使指定志愿者的 profile 缓存失效（统计/资质更新后调用） */
+    public void evictProfileCache(Long userId) {
+        redisTemplate.delete(PROFILE_CACHE_PREFIX + userId);
+    }
+
+    /**
+     * 批量加载志愿者资料：优先读 Redis 缓存，缓存未命中时批量查 DB 并回写缓存
+     *
+     * 策略：MGET 一次网络往返取全部缓存结果；只对 miss 的 ID 查一次 DB
+     */
+    private Map<Long, VolunteerProfile> loadProfilesCached(Set<Long> ids) {
+        List<Long> idList = new ArrayList<>(ids);
+        List<String> keys = idList.stream()
+                .map(id -> PROFILE_CACHE_PREFIX + id)
+                .collect(Collectors.toList());
+
+        List<String> cachedJsons = redisTemplate.opsForValue().multiGet(keys);
+
+        Map<Long, VolunteerProfile> result = new HashMap<>();
+        Set<Long> misses = new HashSet<>();
+
+        for (int i = 0; i < idList.size(); i++) {
+            String json = cachedJsons != null ? cachedJsons.get(i) : null;
+            if (json != null) {
+                VolunteerProfile p = profileFromJson(json);
+                if (p != null) result.put(idList.get(i), p);
+                else misses.add(idList.get(i));
+            } else {
+                misses.add(idList.get(i));
+            }
+        }
+
+        if (!misses.isEmpty()) {
+            volunteerProfileRepository.findByUserIdIn(misses).forEach(p -> {
+                result.put(p.getUserId(), p);
+                String json = profileToJson(p);
+                if (json != null) {
+                    redisTemplate.opsForValue().set(
+                            PROFILE_CACHE_PREFIX + p.getUserId(), json,
+                            PROFILE_CACHE_TTL_MINUTES, java.util.concurrent.TimeUnit.MINUTES);
+                }
+            });
+        }
+
+        return result;
+    }
+
+    /** 将评分所需字段序列化为 JSON（避免序列化 JPA 懒加载关联） */
+    private String profileToJson(VolunteerProfile p) {
+        try {
+            Map<String, Object> data = new HashMap<>();
+            data.put("userId", p.getUserId());
+            data.put("verified", p.getVerified());
+            data.put("registrationStep", p.getRegistrationStep() != null ? p.getRegistrationStep().name() : null);
+            data.put("acceptsGuideDog", p.getAcceptsGuideDog());
+            data.put("avgRating", p.getAvgRating());
+            data.put("totalRatings", p.getTotalRatings());
+            data.put("totalDispatched", p.getTotalDispatched());
+            data.put("totalAccepted", p.getTotalAccepted());
+            data.put("totalDeclined", p.getTotalDeclined());
+            data.put("acceptanceRate", p.getAcceptanceRate());
+            data.put("paceRange", p.getPaceRange() != null ? p.getPaceRange().name() : null);
+            return objectMapper.writeValueAsString(data);
+        } catch (Exception e) {
+            log.warn("序列化 profile 失败 userId={}: {}", p.getUserId(), e.getMessage());
+            return null;
+        }
+    }
+
+    /** 从 JSON 反序列化出 VolunteerProfile（仅还原评分相关字段） */
+    @SuppressWarnings("unchecked")
+    private VolunteerProfile profileFromJson(String json) {
+        try {
+            Map<String, Object> data = objectMapper.readValue(json, Map.class);
+            VolunteerProfile p = new VolunteerProfile();
+            if (data.get("userId") instanceof Number n) p.setUserId(n.longValue());
+            p.setVerified((Boolean) data.get("verified"));
+            if (data.get("registrationStep") instanceof String s)
+                p.setRegistrationStep(RegistrationStep.valueOf(s));
+            p.setAcceptsGuideDog((Boolean) data.get("acceptsGuideDog"));
+            if (data.get("avgRating") instanceof Number n) p.setAvgRating(n.doubleValue());
+            if (data.get("totalRatings") instanceof Number n) p.setTotalRatings(n.intValue());
+            if (data.get("totalDispatched") instanceof Number n) p.setTotalDispatched(n.intValue());
+            if (data.get("totalAccepted") instanceof Number n) p.setTotalAccepted(n.intValue());
+            if (data.get("totalDeclined") instanceof Number n) p.setTotalDeclined(n.intValue());
+            if (data.get("acceptanceRate") instanceof Number n) p.setAcceptanceRate(n.doubleValue());
+            if (data.get("paceRange") instanceof String s)
+                p.setPaceRange(PacePreference.valueOf(s));
+            return p;
+        } catch (Exception e) {
+            log.warn("反序列化 profile 缓存失败: {}", e.getMessage());
+            return null;
+        }
     }
 
     private double getDistanceForRound(int round) {
@@ -484,7 +575,4 @@ public class DispatchService {
         };
     }
 
-    private int safeInt(Integer val) {
-        return val != null ? val : 0;
-    }
 }

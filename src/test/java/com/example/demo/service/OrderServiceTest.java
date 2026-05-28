@@ -127,7 +127,7 @@ class OrderServiceTest {
         assertThrows(IllegalArgumentException.class, () -> orderCreationService.createOrder(1L, request));
     }
 
-    /** 接单成功 → IN_PROGRESS */
+    /** 接单成功 → IN_PROGRESS（直接接单从 PENDING_MATCH 状态） */
     @Test
     void testAcceptOrderSuccess() {
         User blindUser = new User();
@@ -135,7 +135,7 @@ class OrderServiceTest {
 
         RunOrder order = new RunOrder();
         order.setId(1001L);
-        order.setStatus(OrderStatus.PENDING_ACCEPT);
+        order.setStatus(OrderStatus.PENDING_MATCH);
         order.setBlindUser(blindUser);
 
         com.example.demo.entity.VolunteerProfile profile = new com.example.demo.entity.VolunteerProfile();
@@ -153,7 +153,7 @@ class OrderServiceTest {
         assertNotNull(order.getAcceptedAt());
     }
 
-    /** 接单失败：状态不是 PENDING_ACCEPT 或 PENDING_MATCH */
+    /** 接单失败：直接接单只允许 PENDING_MATCH/REMATCHING，PENDING_ACCEPT 由派单事件处理 */
     @Test
     void testAcceptOrderWrongStatus() {
         com.example.demo.entity.VolunteerProfile profile = new com.example.demo.entity.VolunteerProfile();

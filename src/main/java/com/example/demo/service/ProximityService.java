@@ -6,6 +6,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.concurrent.TimeUnit;
+
 /**
  * 邻近感知服务 —— 当志愿者距离盲人 ≤ 阈值（默认 100 米）时推送通知
  */
@@ -52,8 +54,8 @@ public class ProximityService {
             // 推送通知
             notificationService.sendProximityAlert(orderId, blindUserId, volunteerId, distanceMeters);
 
-            // 标记已通知（防止重复推送）
-            redisTemplate.opsForValue().set(notifiedKey, "1");
+            // 标记已通知（防止重复推送）— TTL 24h 防止 key 永久残留
+            redisTemplate.opsForValue().set(notifiedKey, "1", 24, TimeUnit.HOURS);
             log.info("邻近感知触发! orderId={}, 距离={}米", orderId, Math.round(distanceMeters));
         }
     }

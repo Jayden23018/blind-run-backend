@@ -40,6 +40,7 @@ public class AdminVolunteerService {
     private final TrainingCourseRepository trainingCourseRepository;
     private final TrainingQuizQuestionRepository questionRepository;
     private final ObjectMapper objectMapper;
+    private final DispatchService dispatchService;
 
     public AdminVolunteerService(VolunteerProfileRepository volunteerProfileRepository,
                                   TrainingProgressRepository trainingProgressRepository,
@@ -47,7 +48,8 @@ public class AdminVolunteerService {
                                   FileStorageService fileStorageService,
                                   TrainingCourseRepository trainingCourseRepository,
                                   TrainingQuizQuestionRepository questionRepository,
-                                  ObjectMapper objectMapper) {
+                                  ObjectMapper objectMapper,
+                                  DispatchService dispatchService) {
         this.volunteerProfileRepository = volunteerProfileRepository;
         this.trainingProgressRepository = trainingProgressRepository;
         this.notificationService = notificationService;
@@ -55,6 +57,7 @@ public class AdminVolunteerService {
         this.trainingCourseRepository = trainingCourseRepository;
         this.questionRepository = questionRepository;
         this.objectMapper = objectMapper;
+        this.dispatchService = dispatchService;
     }
 
     /**
@@ -105,6 +108,7 @@ public class AdminVolunteerService {
         }
 
         volunteerProfileRepository.save(profile);
+        dispatchService.evictProfileCache(request.getUserId());
     }
 
     /**
@@ -152,6 +156,7 @@ public class AdminVolunteerService {
         }
 
         volunteerProfileRepository.save(profile);
+        dispatchService.evictProfileCache(request.getUserId());
     }
 
     /**

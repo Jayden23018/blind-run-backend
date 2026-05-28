@@ -283,27 +283,28 @@ public class EmergencyService {
         notificationService.sendSmsToUser(event.getUserId(),
                 "已收到您的求助信号，正在紧急处理中，请保持冷静。");
 
-        // 2. 更新状态为 VOLUNTEER_NOTIFIED 并设置超时时间
-        event.setStatus(EmergencyStatus.VOLUNTEER_NOTIFIED);
-        event.setVolunteerNotifiedAt(LocalDateTime.now());
-        event.setVolunteerTimeoutAt(LocalDateTime.now().plusSeconds(volunteerTimeoutSeconds));
-        eventRepository.save(event);
-
         if (order.getVolunteer() != null) {
-            // 通知盲人用户
+            // 2a. 有志愿者：通知志愿者，等待响应
+            event.setStatus(EmergencyStatus.VOLUNTEER_NOTIFIED);
+            event.setVolunteerNotifiedAt(LocalDateTime.now());
+            event.setVolunteerTimeoutAt(LocalDateTime.now().plusSeconds(volunteerTimeoutSeconds));
+            eventRepository.save(event);
+
             Map<String, String> params = new HashMap<>();
             params.put("volunteerName", order.getVolunteer().getName());
             notificationService.sendNotification(event.getUserId(), "EMERGENCY_TRIGGERED",
                     TargetRole.BLIND_USER, params);
-
-            // 通知志愿者
             notificationService.sendEmergencyVolunteerAlert(event, order.getVolunteer().getId());
+            log.info("已通知志愿者，等待 {} 秒响应, eventId={}", volunteerTimeoutSeconds, event.getId());
+        } else {
+            // 2b. 无志愿者（订单尚未匹配）：直接升级通知紧急联系人
+            eventRepository.save(event);
+            log.warn("紧急事件触发时订单无关联志愿者，直接升级处理, eventId={}", event.getId());
+            escalateToEmergencyContacts(event);
         }
 
-        // 3. 同时推送客服
+        // 3. 推送客服
         notificationService.sendEmergencyAlert(event);
-
-        log.info("已通知志愿者，等待 {} 秒响应（定时轮询检测）, eventId={}", volunteerTimeoutSeconds, event.getId());
     }
 
     /**
