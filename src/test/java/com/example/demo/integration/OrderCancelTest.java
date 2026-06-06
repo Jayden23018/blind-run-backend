@@ -142,10 +142,10 @@ class OrderCancelTest extends BaseIntegrationTest {
         JsonNode json = testHelper.extractJson(response.getBody());
         assertThat(json.get("success").asBoolean()).isTrue();
 
-        // 验证状态变为 CANCELLED
-        assertThat(testHelper.getOrderStatus(result.blindToken(), result.orderId())).isEqualTo(OrderStatus.CANCELLED);
+        // 验证状态变为 REMATCHING（志愿者取消任何阶段订单均进入重新匹配，非 CANCELLED）
+        assertThat(testHelper.getOrderStatus(result.blindToken(), result.orderId())).isEqualTo(OrderStatus.REMATCHING);
 
-        System.out.println("✅ TC-CANCEL-05 passed — 志愿者取消IN_PROGRESS订单 → 200");
+        System.out.println("✅ TC-CANCEL-05 passed — 志愿者取消IN_PROGRESS订单 → 200，状态变 REMATCHING");
     }
 
     // ==================== 已完成订单取消 ====================

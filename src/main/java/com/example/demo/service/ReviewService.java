@@ -48,7 +48,7 @@ public class ReviewService {
 
         // 校验是订单的盲人用户
         if (!order.getBlindUser().getId().equals(userId)) {
-            throw new OrderPermissionException("只有订单的盲人用户才能评价");
+            throw new OrderPermissionException("NOT_ORDER_PARTICIPANT", "只有订单的盲人用户才能评价");
         }
 
         // 校验订单已完成
@@ -93,7 +93,7 @@ public class ReviewService {
         boolean isBlind = order.getBlindUser().getId().equals(userId);
         boolean isVolunteer = order.getVolunteer() != null && order.getVolunteer().getId().equals(userId);
         if (!isBlind && !isVolunteer) {
-            throw new OrderPermissionException("您无权查看此订单评价");
+            throw new OrderPermissionException("NOT_ORDER_PARTICIPANT", "您无权查看此订单评价");
         }
 
         return orderReviewRepository.findByOrderId(orderId)

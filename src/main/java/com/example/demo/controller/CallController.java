@@ -59,7 +59,7 @@ public class CallController {
             calleeId = blindUserId;
             calleeRole = CallRole.BLIND_USER;
         } else {
-            throw new OrderPermissionException("您无权发起此通话");
+            throw new OrderPermissionException("NOT_ORDER_PARTICIPANT", "您无权发起此通话");
         }
 
         Map<String, Object> result = privateNumberService.initiateCall(
