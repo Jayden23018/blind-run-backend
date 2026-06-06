@@ -234,7 +234,11 @@ public class DispatchService {
      * 志愿者响应串行派单（接单或拒绝）—— 由 OrderController 调用
      * ACCEPT：完成派单协议后发布 DispatchAcceptedEvent，异步推进订单状态机
      * DECLINE：直接走拒绝流程，推送下一个候选志愿者
+     *
+     * 注意：必须加 @Transactional，因为 handleAccept/handleDecline 是同类方法，
+     * Spring AOP 内部调用不经过代理，其自身的 @Transactional 不会生效。
      */
+    @Transactional
     public void handleVolunteerResponse(Long orderId, Long volunteerId, RespondAction action) {
         switch (action) {
             case ACCEPT -> {

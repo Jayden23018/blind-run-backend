@@ -72,14 +72,14 @@ public class OrderLifecycleService {
     @Transactional
     public void acceptOrder(Long orderId, Long volunteerId) {
         VolunteerProfile profile = volunteerProfileRepository.findByUserId(volunteerId)
-                .orElseThrow(() -> new OrderPermissionException("请先完成志愿者认证"));
+                .orElseThrow(() -> new OrderPermissionException("VOLUNTEER_NOT_VERIFIED", "请先完成志愿者认证"));
 
         if (profile.getRegistrationStep() != RegistrationStep.STEP_4_COMPLETED) {
-            throw new OrderPermissionException("请先完成志愿者注册流程（当前步骤：" +
+            throw new OrderPermissionException("VOLUNTEER_NOT_REGISTERED", "请先完成志愿者注册流程（当前步骤：" +
                     profile.getRegistrationStep().name() + "）");
         }
         if (!Boolean.TRUE.equals(profile.getVerified())) {
-            throw new OrderPermissionException("请先完成志愿者认证");
+            throw new OrderPermissionException("VOLUNTEER_NOT_VERIFIED", "请先完成志愿者认证");
         }
 
         RunOrder order = runOrderRepository.findById(orderId)
@@ -125,7 +125,7 @@ public class OrderLifecycleService {
                 .orElseThrow(() -> new OrderNotFoundException("订单不存在，ID: " + orderId));
 
         if (order.getVolunteer() == null || !order.getVolunteer().getId().equals(volunteerId)) {
-            throw new OrderPermissionException("只有接单的志愿者才能操作");
+            throw new OrderPermissionException("NOT_ORDER_PARTICIPANT", "只有接单的志愿者才能操作");
         }
         if (order.getStatus() != OrderStatus.IN_PROGRESS) {
             throw new OrderStatusException("当前订单状态不允许此操作");
@@ -147,7 +147,7 @@ public class OrderLifecycleService {
                 .orElseThrow(() -> new OrderNotFoundException("订单不存在，ID: " + orderId));
 
         if (order.getVolunteer() == null || !order.getVolunteer().getId().equals(volunteerId)) {
-            throw new OrderPermissionException("只有接单的志愿者才能操作");
+            throw new OrderPermissionException("NOT_ORDER_PARTICIPANT", "只有接单的志愿者才能操作");
         }
         if (order.getStatus() != OrderStatus.DRIVER_EN_ROUTE) {
             throw new OrderStatusException("当前订单状态不允许此操作");
@@ -169,7 +169,7 @@ public class OrderLifecycleService {
                 .orElseThrow(() -> new OrderNotFoundException("订单不存在，ID: " + orderId));
 
         if (order.getVolunteer() == null || !order.getVolunteer().getId().equals(volunteerId)) {
-            throw new OrderPermissionException("只有接单的志愿者才能结束服务");
+            throw new OrderPermissionException("NOT_ORDER_PARTICIPANT", "只有接单的志愿者才能结束服务");
         }
         if (order.getStatus() != OrderStatus.IN_PROGRESS
                 && order.getStatus() != OrderStatus.DRIVER_EN_ROUTE
@@ -198,7 +198,7 @@ public class OrderLifecycleService {
         boolean isVolunteer = order.getVolunteer() != null && order.getVolunteer().getId().equals(userId);
 
         if (!isBlind && !isVolunteer) {
-            throw new OrderPermissionException("您无权操作此订单");
+            throw new OrderPermissionException("NOT_ORDER_PARTICIPANT", "您无权操作此订单");
         }
 
         OrderStatus status = order.getStatus();
@@ -206,7 +206,7 @@ public class OrderLifecycleService {
         if (isBlind) {
             if (status == OrderStatus.IN_PROGRESS || status == OrderStatus.DRIVER_EN_ROUTE
                     || status == OrderStatus.DRIVER_ARRIVED) {
-                throw new OrderPermissionException("服务进行中，如需结束请联系志愿者");
+                throw new OrderPermissionException("ORDER_IN_PROGRESS", "服务进行中，如需结束请联系志愿者");
             }
             if (status != OrderStatus.PENDING_MATCH && status != OrderStatus.PENDING_ACCEPT
                     && status != OrderStatus.REMATCHING) {
@@ -257,7 +257,7 @@ public class OrderLifecycleService {
                 .orElseThrow(() -> new IllegalArgumentException("订单不存在，ID: " + orderId));
 
         if (!order.getBlindUser().getId().equals(blindUserId)) {
-            throw new OrderPermissionException("只有订单的盲人用户才能操作");
+            throw new OrderPermissionException("NOT_ORDER_PARTICIPANT", "只有订单的盲人用户才能操作");
         }
         if (order.getStatus() != OrderStatus.PENDING_MATCH) {
             throw new IllegalStateException("当前订单状态不支持此操作");

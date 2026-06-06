@@ -233,7 +233,7 @@ public class OrderController {
         boolean isBlind = order.getBlindUser().getId().equals(userId);
         boolean isVolunteer = order.getVolunteer() != null && order.getVolunteer().getId().equals(userId);
         if (!isBlind && !isVolunteer) {
-            throw new OrderPermissionException("您无权查看此订单");
+            throw new OrderPermissionException("NOT_ORDER_PARTICIPANT", "您无权查看此订单");
         }
 
         List<OrderStatusLogResponse> logs = statusLogService.getStatusLogs(id).stream()

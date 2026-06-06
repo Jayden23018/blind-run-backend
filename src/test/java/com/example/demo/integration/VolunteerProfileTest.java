@@ -131,7 +131,8 @@ class VolunteerProfileTest extends BaseIntegrationTest {
 
         JsonNode json = testHelper.extractJson(response.getBody());
         assertThat(json.get("success").asBoolean()).isTrue();
-        assertThat(json.get("status").asText()).isEqualTo("APPROVED");
+        // 上传后进入待审核，状态为 PENDING（需管理员审核后才变 APPROVED）
+        assertThat(json.get("status").asText()).isEqualTo("PENDING");
 
         System.out.println("✅ TC-VOL-05 passed — 上传资质证件");
     }
@@ -151,23 +152,23 @@ class VolunteerProfileTest extends BaseIntegrationTest {
         System.out.println("✅ TC-VOL-06 passed — 上传前认证状态为NONE");
     }
 
-    /** TC-VOL-07：上传后认证状态为 APPROVED */
+    /** TC-VOL-07：上传后认证状态为 PENDING（等待管理员审核） */
     @Test
-    @DisplayName("TC-VOL-07: 上传后认证状态为APPROVED")
+    @DisplayName("TC-VOL-07: 上传后认证状态为PENDING")
     void tc07_verificationStatusAfterUpload() {
         String token = testHelper.registerVolunteerWithoutVerification("13800040007");
 
         // 先上传
         testHelper.submitVerification(token, new byte[]{1, 2, 3}, "test.jpg");
 
-        // 再查询状态
+        // 再查询状态：上传后进入待审核，需管理员 APPROVE 后才变 APPROVED
         ResponseEntity<String> response = testHelper.getVerificationStatus(token);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 
         JsonNode json = testHelper.extractJson(response.getBody());
-        assertThat(json.get("status").asText()).isEqualTo("APPROVED");
+        assertThat(json.get("status").asText()).isEqualTo("PENDING");
 
-        System.out.println("✅ TC-VOL-07 passed — 上传后认证状态为APPROVED");
+        System.out.println("✅ TC-VOL-07 passed — 上传后认证状态为PENDING（待管理员审核）");
     }
 
     // ==================== 位置上报 ====================

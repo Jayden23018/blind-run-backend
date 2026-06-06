@@ -74,7 +74,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleOrderPermission(OrderPermissionException e) {
         return ResponseEntity
                 .status(HttpStatus.FORBIDDEN)
-                .body(Map.of("success", false, "code", 403, "message", e.getMessage()));
+                .body(Map.of("success", false, "code", 403,
+                        "errorCode", e.getErrorCode(), "message", e.getMessage()));
     }
 
     /** 权限不足异常 → 403 */

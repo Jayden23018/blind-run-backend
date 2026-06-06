@@ -150,59 +150,6 @@ public class NotificationService {
     }
 
     /**
-     * 发送订单状态变更通知（WebSocket）
-     * @deprecated 请使用 sendNotification() 方法替代
-     */
-    @Deprecated
-    public void sendOrderStatusChange(Long orderId, String fromStatus, String toStatus,
-                                       Long blindUserId, Long volunteerId, String message) {
-        try {
-            Map<String, Object> msg = buildEnvelope("ORDER_STATUS_CHANGED");
-            msg.put("orderId", orderId);
-            msg.put("fromStatus", fromStatus);
-            msg.put("toStatus", toStatus);
-            msg.put("message", message);
-            msg.put("ttsText", message);
-            msg.put("priority", NotificationPriority.NORMAL.name());
-
-            String json = objectMapper.writeValueAsString(msg);
-            if (blindUserId != null) sessionRegistry.sendToUser(blindUserId, json);
-            if (volunteerId != null) sessionRegistry.sendToUser(volunteerId, json);
-
-            logNotification(orderId, blindUserId, NotificationChannel.WEBSOCKET, message);
-            if (volunteerId != null) logNotification(orderId, volunteerId, NotificationChannel.WEBSOCKET, message);
-        } catch (Exception e) {
-            log.error("发送订单状态变更通知失败: {}", e.getMessage());
-        }
-    }
-
-    /**
-     * 发送订单状态变更通知（带 ttsText 和 priority）
-     */
-    public void sendOrderStatusChange(Long orderId, String fromStatus, String toStatus,
-                                       Long blindUserId, Long volunteerId, String message,
-                                       String ttsText, NotificationPriority priority) {
-        try {
-            Map<String, Object> msg = buildEnvelope("ORDER_STATUS_CHANGED");
-            msg.put("orderId", orderId);
-            msg.put("fromStatus", fromStatus);
-            msg.put("toStatus", toStatus);
-            msg.put("message", message);
-            msg.put("ttsText", ttsText);
-            msg.put("priority", priority != null ? priority.name() : NotificationPriority.NORMAL.name());
-
-            String json = objectMapper.writeValueAsString(msg);
-            if (blindUserId != null) sessionRegistry.sendToUser(blindUserId, json);
-            if (volunteerId != null) sessionRegistry.sendToUser(volunteerId, json);
-
-            logNotification(orderId, blindUserId, NotificationChannel.WEBSOCKET, message);
-            if (volunteerId != null) logNotification(orderId, volunteerId, NotificationChannel.WEBSOCKET, message);
-        } catch (Exception e) {
-            log.error("发送订单状态变更通知失败: {}", e.getMessage());
-        }
-    }
-
-    /**
      * 发送 App 内通知（WebSocket）
      */
     public void sendAppNotification(Long userId, String title, String body) {
@@ -348,27 +295,6 @@ public class NotificationService {
     public void sendEmergencyResolvedSms(String phone, String userName, String time) {
         smsService.sendTemplateSms(phone, SmsTemplate.EMERGENCY_RESOLVED,
                 Map.of("user_name", userName, "time", time));
-    }
-
-    /**
-     * 发送短信（兼容旧调用方式）
-     * @deprecated 请使用 sendEmergencyAlertSms 等模板方法
-     */
-    @Deprecated
-    public void sendSms(String phone, String content) {
-        log.warn("调用了已废弃的 sendSms 方法，建议迁移到模板短信: phone={}",
-                PhoneMaskUtils.mask(phone));
-    }
-
-    /**
-     * 发送短信给用户（根据 userId 查询手机号）
-     * @deprecated 仅用于给盲人本人发短信，建议迁移到模板方法
-     */
-    @Deprecated
-    public void sendSmsToUser(Long userId, String content) {
-        userRepository.findById(userId).ifPresent(user ->
-                log.info("【短信日志】发送至用户{}(手机号={}): {}",
-                        userId, PhoneMaskUtils.mask(user.getPhone()), content));
     }
 
     // === 私有方法 ===
