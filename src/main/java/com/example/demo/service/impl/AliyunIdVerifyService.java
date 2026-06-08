@@ -120,7 +120,9 @@ public class AliyunIdVerifyService {
         Config config = new Config()
                 .setAccessKeyId(accessKeyId)
                 .setAccessKeySecret(accessKeySecret)
-                .setEndpoint(endpoint);
+                .setEndpoint(endpoint)
+                .setConnectTimeout(5000)   // 连接超时 5s，避免阿里云无响应时卡住线程
+                .setReadTimeout(10000);    // 读取超时 10s
         return new Client(config);
     }
 
