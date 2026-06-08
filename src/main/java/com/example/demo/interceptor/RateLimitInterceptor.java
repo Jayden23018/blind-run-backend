@@ -3,16 +3,30 @@ package com.example.demo.interceptor;
 import com.example.demo.exception.RateLimitException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.web.servlet.HandlerInterceptor;
 
-import java.util.concurrent.TimeUnit;
+import java.util.List;
 
 /**
  * Rate limiting interceptor using Redis
+ *
+ * 使用 Lua 脚本原子执行 INCR + EXPIRE，避免两条命令之间服务崩溃导致 key 永不过期的问题。
+ * Lua 脚本在 Redis 单线程中原子执行，等价于一次 CAS 操作。
  */
 public class RateLimitInterceptor implements HandlerInterceptor {
+
+    /**
+     * 原子限流脚本：INCR 后若为首次（count==1）则立即 EXPIRE，两步原子完成。
+     * KEYS[1] = Redis key, ARGV[1] = window seconds
+     */
+    private static final DefaultRedisScript<Long> RATE_LIMIT_SCRIPT = new DefaultRedisScript<>(
+            "local count = redis.call('INCR', KEYS[1]) " +
+            "if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end " +
+            "return count",
+            Long.class
+    );
 
     private final StringRedisTemplate redisTemplate;
     private final boolean enabled;
@@ -74,20 +88,12 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         // Redis key for this IP and bucket
         String redisKey = "rate_limit:" + clientIp + ":" + bucket;
 
-        // Increment counter and set expiry if it's the first request
-        Long count = redisTemplate.execute(new SessionCallback<Long>() {
-            @Override
-            public Long execute(org.springframework.data.redis.core.RedisOperations operations) {
-                Long newCount = operations.opsForValue().increment(redisKey);
-
-                // Set expiry on first request
-                if (newCount != null && newCount == 1) {
-                    operations.expire(redisKey, windowSeconds, TimeUnit.SECONDS);
-                }
-
-                return newCount;
-            }
-        });
+        // 原子执行 INCR + EXPIRE（Lua 脚本保证两步不可分割）
+        Long count = redisTemplate.execute(
+                RATE_LIMIT_SCRIPT,
+                List.of(redisKey),
+                String.valueOf(windowSeconds)
+        );
 
         // Check if limit exceeded
         if (count != null && count > limit) {

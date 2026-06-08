@@ -105,13 +105,24 @@ public class OrderLifecycleService {
         log.info("志愿者 {} 已接单，订单ID={}，原状态={}", volunteerId, orderId, oldStatus);
     }
 
-    @Transactional
     public void acceptOrderWithRetry(Long orderId, Long volunteerId) {
-        try {
-            acceptOrder(orderId, volunteerId);
-        } catch (OptimisticLockingFailureException e) {
-            log.warn("志愿者 {} 接单 {} 时发生并发冲突", volunteerId, orderId);
-            throw new OrderStatusException("订单已被其他志愿者接单，请刷新后重试");
+        int maxAttempts = 3;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                acceptOrder(orderId, volunteerId);
+                return;
+            } catch (OptimisticLockingFailureException e) {
+                log.warn("志愿者 {} 接单 {} 并发冲突，第 {}/{} 次重试", volunteerId, orderId, attempt, maxAttempts);
+                if (attempt == maxAttempts) {
+                    throw new OrderStatusException("订单已被其他志愿者接单，请刷新后重试");
+                }
+                try {
+                    Thread.sleep(50L * attempt); // 50ms、100ms 指数退避
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new OrderStatusException("接单操作被中断，请重试");
+                }
+            }
         }
     }
 

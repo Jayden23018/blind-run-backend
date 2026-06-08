@@ -57,7 +57,9 @@ public class AliyunSmsServiceImpl implements SmsService {
         Config config = new Config()
                 .setAccessKeyId(accessKeyId)
                 .setAccessKeySecret(accessKeySecret)
-                .setEndpoint("dysmsapi.aliyuncs.com");
+                .setEndpoint("dysmsapi.aliyuncs.com")
+                .setConnectTimeout(5000)   // 连接超时 5s
+                .setReadTimeout(10000);    // 读取超时 10s
         this.smsClient = new Client(config);
         log.info("阿里云短信客户端初始化完成（AccessKey: {}***）",
                 accessKeyId.substring(0, Math.min(8, accessKeyId.length())));
