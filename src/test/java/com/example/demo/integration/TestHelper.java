@@ -2,7 +2,6 @@ package com.example.demo.integration;
 
 import com.example.demo.entity.EmergencyContact;
 import com.example.demo.entity.OrderStatus;
-import com.example.demo.entity.VolunteerProfile;
 import com.example.demo.repository.EmergencyContactRepository;
 import com.example.demo.repository.VolunteerProfileRepository;
 import com.example.demo.service.VerificationCodeService;
@@ -222,13 +221,6 @@ public class TestHelper {
         return extractJson(response.getBody()).get("id").asLong();
     }
 
-    /** 志愿者接单（旧接口，向后兼容） */
-    public void acceptOrder(String token, Long orderId) {
-        ResponseEntity<String> response = rest.postForEntity(
-                "/api/orders/" + orderId + "/accept", jsonEntity(token, null), String.class);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-    }
-
     /** 志愿者响应派单（新接口：ACCEPT 或 DECLINE） */
     public void respondToOrder(String token, Long orderId, String action) {
         ResponseEntity<String> response = rest.postForEntity(
@@ -242,23 +234,10 @@ public class TestHelper {
         respondToOrder(token, orderId, "ACCEPT");
     }
 
-    /** 接单，返回原始响应 */
-    public ResponseEntity<String> acceptOrderRaw(String token, Long orderId) {
-        return rest.postForEntity("/api/orders/" + orderId + "/accept",
-                jsonEntity(token, null), String.class);
-    }
-
     /** 派单响应，返回原始响应（用于并发/被拒场景的状态码断言） */
     public ResponseEntity<String> respondOrderRaw(String token, Long orderId, String action) {
         return rest.postForEntity("/api/orders/" + orderId + "/respond",
                 jsonEntity(token, "{\"action\":\"" + action + "\"}"), String.class);
-    }
-
-    /** 志愿者拒单 */
-    public void rejectOrder(String token, Long orderId) {
-        ResponseEntity<String> response = rest.postForEntity(
-                "/api/orders/" + orderId + "/reject", jsonEntity(token, null), String.class);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
     /** 志愿者结束服务 */

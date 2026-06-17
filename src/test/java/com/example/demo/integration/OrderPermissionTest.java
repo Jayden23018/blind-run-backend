@@ -111,7 +111,7 @@ class OrderPermissionTest extends BaseIntegrationTest {
 
         // 另一个盲人用户尝试接单
         String blindToken2 = testHelper.registerAndLoginWithRole("13800070023", "BLIND");
-        ResponseEntity<String> response = testHelper.acceptOrderRaw(blindToken2, orderId);
+        ResponseEntity<String> response = testHelper.respondOrderRaw(blindToken2, orderId, "ACCEPT");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         JsonNode json = testHelper.extractJson(response.getBody());
@@ -140,7 +140,7 @@ class OrderPermissionTest extends BaseIntegrationTest {
 
         // 未认证志愿者尝试接单
         String unverifiedVolToken = testHelper.registerVolunteerWithoutVerification("13800070033");
-        ResponseEntity<String> response = testHelper.acceptOrderRaw(unverifiedVolToken, orderId);
+        ResponseEntity<String> response = testHelper.respondOrderRaw(unverifiedVolToken, orderId, "ACCEPT");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         JsonNode json = testHelper.extractJson(response.getBody());
@@ -171,7 +171,7 @@ class OrderPermissionTest extends BaseIntegrationTest {
         testHelper.respondAccept(volToken, orderId);
 
         // 第二次接单应失败
-        ResponseEntity<String> response = testHelper.acceptOrderRaw(volToken, orderId);
+        ResponseEntity<String> response = testHelper.respondOrderRaw(volToken, orderId, "ACCEPT");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         JsonNode json = testHelper.extractJson(response.getBody());

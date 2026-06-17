@@ -98,7 +98,8 @@ public class VolunteerController {
     }
 
     /**
-     * @deprecated 已由 WebSocket 消息替代，前端应通过 WebSocket 发送 { type: "LOCATION_UPDATE", lat, lng }
+     * @deprecated 已由 WebSocket 消息替代，前端应通过 WebSocket 发送 { type: "LOCATION_UPDATE", lat, lng }。
+     *             保留此端点：集成测试 testHelper.updateVolunteerLocation 仍走 REST，且作为 WebSocket 降级。
      */
     @Deprecated
     @PostMapping("/location")

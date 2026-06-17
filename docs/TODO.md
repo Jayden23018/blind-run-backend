@@ -46,8 +46,6 @@
 
 | 项目 | 说明 |
 |------|------|
-| `NotificationService.sendOrderStatusChange()` | 标记 `@Deprecated`，**无调用方，可安全删除** |
-| `NotificationService.sendSms()` / `sendSmsToUser()` | 标记 `@Deprecated` stub，**无调用方，可删** |
-| `OrderLifecycleService.acceptOrderWithRetry` / `rejectOrder` | B2 修复后**已无生产调用点**（仅单测引用），确认后可删 |
-| `POST /api/orders/{id}/accept` / `/reject` | `@Deprecated`（B2 后已复用 /respond 校验），前端迁移后可下线 |
-| `POST /api/volunteer/location` | `@Deprecated`（用 WebSocket 上报），保留向后兼容 |
+| `POST /api/volunteer/location` | `@Deprecated`（前端用 WebSocket 上报），但**集成测试 setUp（testHelper.updateVolunteerLocation）仍走 REST**，保留不删 |
+
+> 已清理（2026-06-17）：`NotificationService` 废弃 stub（sendOrderStatusChange/sendSms/sendSmsToUser，前序已删）、`OrderLifecycleService.acceptOrderWithRetry/rejectOrder`（B2 后无生产调用，已删）、`POST /api/orders/{id}/accept`、`/reject`（前端已迁移 /respond，已下线 + TestHelper/OrderPermissionTest 适配）。

@@ -13,7 +13,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -108,30 +107,8 @@ public class OrderLifecycleService {
         log.info("志愿者 {} 已接单，订单ID={}，原状态={}", volunteerId, orderId, oldStatus);
     }
 
-    public void acceptOrderWithRetry(Long orderId, Long volunteerId) {
-        int maxAttempts = 3;
-        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-            try {
-                acceptOrder(orderId, volunteerId);
-                return;
-            } catch (OptimisticLockingFailureException e) {
-                log.warn("志愿者 {} 接单 {} 并发冲突，第 {}/{} 次重试", volunteerId, orderId, attempt, maxAttempts);
-                if (attempt == maxAttempts) {
-                    throw new OrderStatusException("订单已被其他志愿者接单，请刷新后重试");
-                }
-                try {
-                    Thread.sleep(50L * attempt); // 50ms、100ms 指数退避
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    throw new OrderStatusException("接单操作被中断，请重试");
-                }
-            }
-        }
-    }
-
-    public void rejectOrder(Long orderId, Long volunteerId) {
-        log.info("志愿者 {} 拒绝了订单 {}", volunteerId, orderId);
-    }
+    // acceptOrderWithRetry / rejectOrder 已删除：B2 修复后 /accept、/reject 改走
+    // DispatchService.handleVolunteerResponse，这两个方法无生产调用点。acceptOrder 保留供单测。
 
     @Transactional
     public void driverEnRoute(Long orderId, Long volunteerId) {
