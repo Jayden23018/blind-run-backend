@@ -1,5 +1,89 @@
 # 变更日志
 
+## [1.4.0] - 2026-06-17
+
+### 缺陷修复 — 安全（S1/S3/S4，代码评审 P0/P1）
+
+- **S1 Token 黑名单按签发时间比对**：黑名单存「拉黑时刻时间戳」，`isBlacklisted` 比对 token `iat ≤ 拉黑时刻` 才拦截。修复登出→重登被旧黑名单锁死最长 24h 的问题。
+- **S3 SecurityConfig 订单授权 HttpMethod 重载**：原 `"POST /api/orders"` 字符串在 Spring Security 6 的 `MvcRequestMatcher` 下方法前缀全部失效（导致 VOLUNTEER 可创建订单等越权），改用 `requestMatchers(HttpMethod, pattern)` 重载；`/cancel` 改 `hasAnyRole(BLIND, VOLUNTEER)`（修正过严——`cancelOrder` 支持志愿者取消转 REMATCHING）。
+- **S4 限流取真实客户端 IP**：启用 `server.forward-headers-strategy=native`（Tomcat RemoteIpValve），`extractClientIp` 改用 `getRemoteAddr()`，杜绝 `X-Forwarded-For` 伪造绕过限流。
+
+### 缺陷修复 — 订单/紧急（S2/B2/A1/A2/S5，代码评审 P0/P1）
+
+- **S2 REMATCHING 重派上限**：`MAX_REMATCH_COUNT=3`，超限自动 `CANCELLED` + `CancelledBy.SYSTEM` + 通知盲人。
+- **B2 旧 `/accept`、`/reject` 复用 `/respond` 派单校验**：杜绝绕过串行派单抢单；入口加志愿者资质校验（未认证→`OrderPermissionException` 403）；接单失败 `IllegalStateException`→`OrderStatusException`(409)。
+- **A1 紧急 SOS `orderId` 可空**：无活跃订单也能求救。
+- **A2 紧急位置三级降级**：逆地理编码文字地址（高德 regeo，2s 超时）→ 可读经纬度 → 求助引导；短信禁链接（违反阿里云+运营商规定）。
+- **S5 无紧急联系人反馈**：明确通知盲人「未找到联系人，已转客服」+ 事件转 `CS_HANDLING`（防重复 escalate）。
+
+### 新增
+- `docs/ISSUES.md`：问题追踪文档（已解决/待处理），与 CHANGELOG 分工——ISSUES 记缺陷编号与修复状态，CHANGELOG 记版本发布。
+
+### ⚠️ 升级注意（破坏性/行为变化）
+- 旧 `/accept` 接单从「同步 `IN_PROGRESS`」变为「`PENDING_ACCEPT` → 异步 `IN_PROGRESS`」，前端请确认不依赖接单后立即 `IN_PROGRESS`。
+- 生产部署必须：① 加 `server.forward-headers-strategy=native`（否则限流塌缩到 Nginx 单 IP）；② `ALTER TABLE emergency_events MODIFY order_id BIGINT NULL`；③ 配 `AMAP_WEB_KEY`（可选，未配则紧急短信降级为经纬度）。
+
+---
+
+## [1.3.0] - 2026-06-08
+
+### 新增 — 高并发优化
+
+- **Redis Lua 原子限流**：`RateLimitInterceptor` 改用 Lua 脚本原子执行 INCR+EXPIRE，消除 SessionCallback 两步之间服务崩溃导致 key 永不过期的竞态条件
+- **有界异步线程池**：新增 `AsyncConfig`，替换 Spring 默认的 `SimpleAsyncTaskExecutor`（每次调用创建新线程），改用 core=10/max=50/queue=200 的有界池，队满时触发 CallerRunsPolicy 背压
+- **乐观锁重试**：`OrderLifecycleService.acceptOrderWithRetry()` 从立即抛出改为指数退避重试3次（50ms/100ms/150ms），彻底消除并发接单时的误报错误
+- **阿里云 SDK 超时**：`AliyunIdVerifyService` 和 `AliyunSmsServiceImpl` 添加 connectTimeout=5s / readTimeout=10s，防止外部服务无响应时线程永久阻塞
+
+### 变更 — 生产配置优化
+
+- **HikariCP 连接池**：从 50 连接调整为 10（2核服务器最优值），避免 MySQL 在 2 核上频繁上下文切换
+- **关闭生产 SQL 日志**：`spring.jpa.show-sql` 默认改为 `false`，消除高并发下每条 SQL 写日志的磁盘 I/O 压力
+- **JVM 内存上限**：服务器 ExecStart 添加 `-Xms512m -Xmx1500m -XX:+UseG1GC -XX:MaxGCPauseMillis=200`，防止 JVM 无上限扩展占用 MySQL/Redis 内存，G1GC 将 GC 停顿从可能的 5s 压缩到 200ms 以内
+
+### 修复 — 代码清理
+
+- 删除 `application.properties` 中与 `AsyncConfig` 冲突的无效 `spring.task.execution.*` 配置（被 AsyncConfig Bean 覆盖后这些属性不生效）
+- `OrderController` 的 `/accept` 和 `/reject` 端点补充 `@Deprecated` 注解
+
+---
+
+## [1.2.0] - 2026-04-24
+
+### 新增
+
+- **登出接口**：`POST /api/auth/logout`、`POST /api/cs/auth/logout`，JWT 加入 Redis 黑名单
+- **设置角色返回新 Token**：`POST /api/user/role` 响应新增 `token` 字段，客户端必须替换本地存储的 token
+- **RBAC 角色权限**：SecurityConfig 按角色精确控制所有接口，无权限返回 JSON 格式 403
+- **WebSocket 角色校验**：盲人只能连 `/ws/blind`，志愿者只能连 `/ws/volunteer`，连错返回 403
+- **CS 账号登录锁定**：连续失败5次锁定15分钟，通过 Redis 原子操作实现
+- **手机号格式校验**：登录/发验证码只接受1开头11位中国手机号
+
+### 变更
+
+- **401/403 统一 JSON 格式**：不再返回 HTML，统一返回 `{success, code, message}`
+
+---
+
+## [1.1.0] - 2026-04-22
+
+### 新增
+
+- **串行派单系统**：`DispatchService` + `ScoringService` + `DispatchScheduler`，5维评分（距离×40 + 时间×25 + 评分×20 + 接单率×10 + 配速×5），3轮距离扩展（5→10→20km），每志愿者30秒超时轮转
+- **志愿者响应接口**：`POST /api/orders/{id}/respond {"action":"ACCEPT"|"DECLINE"}`，替代旧的 `/accept` 和 `/reject`
+- **OSS 文件云存储**：`OssFileStorageService` 接入阿里云 OSS，私有 Bucket + 1小时 presigned URL；通过 `app.storage.type` 切换本地/OSS
+- **盲人 WebSocket**：新增 `/ws/blind` 端点，`BlindWebSocketHandler` 支持位置上报（LOCATION_UPDATE）和 PING
+- **阿里云人脸认证完善**：`AliyunIdVerifyService` 添加 `Model=NO_LIVENESS`/`Crop=T`、照片自动压缩(<1MB)、错误码中文映射，不再是 Stub
+- **REMATCHING 状态**：志愿者取消后不直接 CANCELLED，进入 REMATCHING 重新派单
+
+### 变更
+
+- 订单状态从7种扩展为9种：新增 `REMATCHING`、`NO_VOLUNTEER`
+- 订单字段新增：配速/路线/导盲犬/时长/备注
+- 盲人档案新增：视力/牵引/聊天偏好/默认配速
+- 志愿者档案新增：导盲犬/配速范围
+
+---
+
 ## [1.0.0] - 2026-04-14
 
 ### 新增

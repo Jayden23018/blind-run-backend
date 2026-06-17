@@ -89,7 +89,49 @@ PENDING_MATCH → PENDING_ACCEPT → IN_PROGRESS → DRIVER_EN_ROUTE → DRIVER_
 - 志愿者需已上报位置
 - 按距离排序
 
-### 3. 接单
+### 3. 响应派单（新接口，推荐使用）
+
+**接口**: `POST /api/orders/{id}/respond`
+
+**认证**: 需要JWT token（志愿者）
+
+**说明**: 串行派单专用。系统按评分逐一推送志愿者，被推送的志愿者在30秒内用此接口接单或跳过。
+
+**请求体**:
+```json
+{
+  "action": "ACCEPT"
+}
+```
+或
+```json
+{
+  "action": "DECLINE"
+}
+```
+
+**成功响应** (200 OK):
+```json
+{
+  "success": true,
+  "orderId": 123
+}
+```
+
+**失败响应**:
+- **403 Forbidden** - 未完成注册或非当前派单志愿者
+- **409 Conflict** - 订单状态已改变（已被他人接单或已取消）
+
+**业务逻辑**:
+- 仅当前被派单的志愿者可操作（其他志愿者会收到403）
+- ACCEPT：乐观锁保护，自动重试3次，PENDING_MATCH → PENDING_ACCEPT
+- DECLINE：跳过，派单队列推进到下一个候选人
+
+---
+
+### 4. 接单（已废弃，兼容保留）
+
+> ⚠️ **已废弃**: 请使用 `POST /api/orders/{id}/respond`。**B2 修复后此接口已复用 /respond 的派单归属校验（行为与 /respond 一致）**，仅保留兼容旧前端。
 
 **接口**: `POST /api/orders/{id}/accept`
 
@@ -103,32 +145,15 @@ PENDING_MATCH → PENDING_ACCEPT → IN_PROGRESS → DRIVER_EN_ROUTE → DRIVER_
 }
 ```
 
-**失败响应**:
-- **403 Forbidden** - 未完成注册
-```json
-{
-  "success": false,
-  "code": 403,
-  "message": "请先完成志愿者注册流程（当前步骤：STEP_3_FACE_VERIFY）"
-}
-```
+**业务逻辑**（B2 修复后，与 `/respond` 行为一致）:
+- 复用派单归属校验：仅当前被派单的志愿者可接单（非当前派单对象→409）
+- 入口校验志愿者资质（未完成注册→403 "请先完成志愿者注册流程"）
+- ⚠️ **行为变化**：接单后状态为 `PENDING_ACCEPT`，经 `@Async` 事件**异步推进**到 `IN_PROGRESS`（不再是同步 `IN_PROGRESS`）；前端如需立即感知请轮询订单状态或监听 WebSocket
+- 接单失败返回 409（`OrderStatusException`）
 
-- **409 Conflict** - 订单已被接
-```json
-{
-  "success": false,
-  "code": 409,
-  "message": "订单已被其他志愿者接单或已取消"
-}
-```
+### 5. 拒单（已废弃，兼容保留）
 
-**业务逻辑**:
-- 志愿者必须完成注册流程（STEP_4_COMPLETED）
-- 支持PENDING_MATCH / PENDING_ACCEPT / REMATCHING状态接单
-- 乐观锁防止并发接单
-- WebSocket通知盲人用户
-
-### 4. 拒单
+> ⚠️ **已废弃**: 请使用 `POST /api/orders/{id}/respond {"action":"DECLINE"}`
 
 **接口**: `POST /api/orders/{id}/reject`
 
@@ -141,7 +166,7 @@ PENDING_MATCH → PENDING_ACCEPT → IN_PROGRESS → DRIVER_EN_ROUTE → DRIVER_
 }
 ```
 
-### 5. 志愿者出发
+### 6. 志愿者出发
 
 **接口**: `POST /api/orders/{id}/en-route`
 
@@ -156,7 +181,7 @@ PENDING_MATCH → PENDING_ACCEPT → IN_PROGRESS → DRIVER_EN_ROUTE → DRIVER_
 
 **状态**: IN_PROGRESS → DRIVER_EN_ROUTE
 
-### 6. 志愿者到达
+### 7. 志愿者到达
 
 **接口**: `POST /api/orders/{id}/arrived`
 
@@ -171,7 +196,7 @@ PENDING_MATCH → PENDING_ACCEPT → IN_PROGRESS → DRIVER_EN_ROUTE → DRIVER_
 
 **状态**: DRIVER_EN_ROUTE → DRIVER_ARRIVED
 
-### 7. 完成服务
+### 8. 完成服务
 
 **接口**: `POST /api/orders/{id}/finish`
 
@@ -187,7 +212,7 @@ PENDING_MATCH → PENDING_ACCEPT → IN_PROGRESS → DRIVER_EN_ROUTE → DRIVER_
 
 **状态**: DRIVER_ARRIVED → COMPLETED
 
-### 8. 取消订单
+### 9. 取消订单
 
 **接口**: `POST /api/orders/{id}/cancel`
 
@@ -205,7 +230,7 @@ PENDING_MATCH → PENDING_ACCEPT → IN_PROGRESS → DRIVER_EN_ROUTE → DRIVER_
 - 志愿者在IN_PROGRESS取消 → CANCELLED（记录爽约）
 - 盲人用户取消 → CANCELLED
 
-### 9. 继续等待匹配
+### 10. 继续等待匹配
 
 **接口**: `PUT /api/orders/{id}/keep-waiting`
 

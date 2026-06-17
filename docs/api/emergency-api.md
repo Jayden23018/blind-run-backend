@@ -30,9 +30,11 @@ PENDING → VOLUNTEER_NOTIFIED → VOLUNTEER_CONFIRMED → CS_HANDLING → RESOL
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| orderId | number | 是 | 订单ID |
-| gpsLat | number | 是 | 纬度 |
-| gpsLng | number | 是 | 经度 |
+| orderId | number | 否 | 订单ID（A1：独立 SOS 可不传；传则校验是否订单参与者） |
+| gpsLat | number | 否 | 纬度（A2：可不传，无坐标时短信走"报警110"引导） |
+| gpsLng | number | 否 | 经度（同上） |
+
+> **A1/A2/S5 更新**：① 无 `orderId` 可触发独立 SOS（直接升级紧急联系人 + 推客服）；② 紧急联系人短信位置**三级降级**——逆地理编码文字地址（高德 regeo，需配 `AMAP_WEB_KEY`）→ 可读经纬度 → "报警110"引导，**短信禁链接**（违反运营商规定）；③ 若用户**未设置紧急联系人**，盲人会收到"未找到联系人，已转客服"通知，事件转 `CS_HANDLING`。
 
 **成功响应** (200 OK):
 ```json

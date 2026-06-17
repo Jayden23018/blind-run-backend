@@ -166,7 +166,15 @@ After=network.target mysql.service redis.service
 Type=simple
 User=blindrun
 WorkingDirectory=/opt/blindrun
-ExecStart=/usr/bin/java -jar -Xmx2g -Xms2g /opt/blindrun/demo-0.0.1-SNAPSHOT.jar
+ExecStart=/usr/bin/java \
+  -Xms512m -Xmx1500m \
+  -XX:+UseG1GC \
+  -XX:MaxGCPauseMillis=200 \
+  -Dspring.profiles.active=prod \
+  -Dspring.sql.init.mode=never \
+  -Dserver.forward-headers-strategy=native \
+  -Dcors.allowed-origins=http://localhost:3000,http://localhost:5173,http://47.114.113.171 \
+  -jar /opt/blindrun/demo-0.0.1-SNAPSHOT.jar
 Restart=always
 RestartSec=10
 

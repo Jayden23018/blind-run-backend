@@ -222,7 +222,8 @@ PENDING_MATCH → PENDING_ACCEPT → IN_PROGRESS → DRIVER_EN_ROUTE → DRIVER_
 |------|------|------|------|
 | POST | `/api/orders` | 创建订单 | BLIND |
 | GET | `/api/orders/available` | 获取可接订单 | VOLUNTEER |
-| POST | `/api/orders/{id}/accept` | 接单 | VOLUNTEER |
+| POST | `/api/orders/{id}/respond` | 响应派单（接单/跳过）⭐推荐 | VOLUNTEER |
+| POST | `/api/orders/{id}/accept` | 接单（已废弃；**B2 后复用 /respond 校验，接单异步进入 IN_PROGRESS**） | VOLUNTEER |
 | POST | `/api/orders/{id}/en-route` | 出发 | VOLUNTEER |
 | POST | `/api/orders/{id}/arrived` | 到达 | VOLUNTEER |
 | POST | `/api/orders/{id}/finish` | 完成 | VOLUNTEER |
@@ -634,3 +635,24 @@ A: 检查 token 是否有效，URL 是否正确（`ws://` 不是 `http://`）。
 
 **Q: 通话功能返回的号码是假的？**
 A: 通话功能目前是模拟实现，返回 170 开头的假号码，真实号码需要开通阿里云隐私号码服务。
+
+**Q: 后端启动报数据库/Redis连接失败？**
+```bash
+# 检查MySQL是否运行
+mysql -u root -p -e "SELECT 1;"
+
+# 检查Redis是否运行
+redis-cli ping   # 应返回 PONG
+
+# 检查端口是否占用
+lsof -i :8081
+```
+
+**Q: 前端请求被CORS阻止？**
+A: 后端已配置 CORS，允许 `localhost:3000` 和 `localhost:5173`。确保前端开发服务器运行在这两个端口之一，macOS 上避免用 `http://localhost`（改用 `http://127.0.0.1`）。
+
+**Q: 返回401，确认token正确但还是报错？**
+A: 注意 `Authorization` 头格式：`Bearer ` 后面有一个空格。JWT 默认24小时过期，过期后需重新登录。
+
+**Q: 志愿者收到NEW_ORDER消息后如何响应？**
+A: 调用 `POST /api/orders/{id}/respond` 传 `{"action":"ACCEPT"}` 接单或 `{"action":"DECLINE"}` 跳过。有30秒时间窗口，超时自动推给下一个志愿者。
