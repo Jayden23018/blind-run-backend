@@ -48,7 +48,7 @@
 ```json
 // POST /api/cs/auth/login
 // 请求
-{ "username": "admin", "password": "CuliuBlindrun2026" }
+{ "username": "admin", "password": "admin123" }
 
 // 响应
 { "token": "eyJhbGciOiJIUzUxMiJ9...", "role": "ADMIN" }
