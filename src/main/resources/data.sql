@@ -62,6 +62,10 @@ VALUES ('EMERGENCY_TRIGGERED', 'BLIND_USER', 'WEBSOCKET', '已收到求助，正
 INSERT IGNORE INTO notification_templates (event_type, target_role, channel, template_text, tts_text, priority, is_active)
 VALUES ('EMERGENCY_CONTACT_NOTIFIED', 'BLIND_USER', 'WEBSOCKET', '已通知紧急联系人{contactName}', '已通过短信通知您的紧急联系人{contactName}，请保持冷静', 'HIGH', true);
 
+-- 紧急：用户未设置紧急联系人 → 通知盲人已转客服处理（S5，防止"正在通知家人"承诺落空）
+INSERT IGNORE INTO notification_templates (event_type, target_role, channel, template_text, tts_text, priority, is_active)
+VALUES ('EMERGENCY_NO_CONTACT', 'BLIND_USER', 'WEBSOCKET', '未找到紧急联系人，已转客服处理。如情况紧急请拨打110', '未找到您的紧急联系人，已通知客服处理，如情况紧急请直接拨打110报警', 'HIGH', true);
+
 -- 14. 志愿者取消服务 → 通知盲人
 INSERT IGNORE INTO notification_templates (event_type, target_role, channel, template_text, tts_text, priority, is_active)
 VALUES ('VOLUNTEER_CANCELLED', 'BLIND_USER', 'WEBSOCKET', '志愿者已取消，正在重新匹配', '您的志愿者已取消服务，系统正在为您重新匹配，请稍候', 'NORMAL', true);

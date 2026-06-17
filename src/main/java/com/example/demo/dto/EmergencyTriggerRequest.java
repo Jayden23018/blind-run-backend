@@ -2,7 +2,6 @@ package com.example.demo.dto;
 
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
-import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -13,8 +12,7 @@ import java.math.BigDecimal;
 @Data
 public class EmergencyTriggerRequest {
 
-    /** 订单ID */
-    @NotNull(message = "订单ID不能为空")
+    /** 订单ID（可选：进行中订单触发时传入以校验参与者；独立 SOS 不传） */
     private Long orderId;
 
     /** 当前纬度（可选，盲人端 GPS） */

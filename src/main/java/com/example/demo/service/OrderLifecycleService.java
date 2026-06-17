@@ -49,6 +49,9 @@ public class OrderLifecycleService {
 
     private static final int MAX_MATCH_NOTIFY_COUNT = 3;
 
+    /** 志愿者取消导致的最大重新匹配次数，超过则自动终止订单，避免无限轮转 */
+    private static final int MAX_REMATCH_COUNT = 3;
+
     public OrderLifecycleService(RunOrderRepository runOrderRepository,
                                  UserRepository userRepository,
                                  ApplicationEventPublisher eventPublisher,
@@ -240,6 +243,26 @@ public class OrderLifecycleService {
             if (status != OrderStatus.PENDING_ACCEPT && status != OrderStatus.IN_PROGRESS
                     && status != OrderStatus.DRIVER_EN_ROUTE && status != OrderStatus.DRIVER_ARRIVED) {
                 throw new OrderStatusException("当前订单状态不允许取消");
+            }
+
+            // 重新匹配已达上限：不再重派，直接终止订单（参照 handleMatchTimeout 的自动取消模式），
+            // 避免志愿者持续取消导致订单无限轮转、盲人永远等不到终态
+            int currentRematch = order.getRematchCount() != null ? order.getRematchCount() : 0;
+            if (currentRematch >= MAX_REMATCH_COUNT) {
+                String oldStatus = order.getStatus().name();
+                order.setVolunteer(null);
+                order.setCancelledBy(CancelledBy.SYSTEM);
+                order.setStatus(OrderStatus.CANCELLED);
+                order.setRematchNotifyAt(null);
+                runOrderRepository.save(order);
+
+                statusLogService.logStatusChange(orderId, oldStatus, "CANCELLED", userId,
+                        "重新匹配超过" + MAX_REMATCH_COUNT + "次，自动取消");
+                notificationService.sendNotification(order.getBlindUser().getId(),
+                        "ORDER_AUTO_CANCELLED", TargetRole.BLIND_USER, null);
+                proximityService.clearProximityFlag(orderId);
+                log.warn("订单 {} 重新匹配已达上限 {} 次，自动取消", orderId, MAX_REMATCH_COUNT);
+                return;
             }
 
             // 任何阶段志愿者取消均进入 REMATCHING，给盲人重新匹配机会

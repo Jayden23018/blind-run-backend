@@ -19,7 +19,8 @@ public class EmergencyEvent {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "order_id", nullable = false)
+    /** 关联订单ID（可空：独立 SOS 无订单时为 null） */
+    @Column(name = "order_id")
     private Long orderId;
 
     @Column(name = "user_id", nullable = false)

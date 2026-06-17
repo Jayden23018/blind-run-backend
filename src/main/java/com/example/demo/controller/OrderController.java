@@ -6,6 +6,7 @@ import com.example.demo.dto.DispatchRespondRequest;
 import com.example.demo.dto.OrderDetailResponse;
 import com.example.demo.dto.OrderResponse;
 import com.example.demo.dto.OrderStatusLogResponse;
+import com.example.demo.dto.RespondAction;
 import com.example.demo.entity.BlindProfile;
 import com.example.demo.entity.OrderStatus;
 import com.example.demo.entity.RunOrder;
@@ -98,17 +99,31 @@ public class OrderController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    /**
+     * @deprecated 已由 POST /{id}/respond 替代（串行派单专用）。
+     *             保留此接口仅为向后兼容旧版前端，新客户端请使用 /respond。
+     *             （B2 修复：现已复用 /respond 的派单归属校验，行为与 /respond 完全一致——
+     *              仅当前被派单的志愿者可接单，杜绝绕过串行派单协议抢单。）
+     */
+    @Deprecated
     @PostMapping("/{id}/accept")
     public ResponseEntity<?> acceptOrder(@PathVariable @Min(1) Long id) {
         Long userId = SecurityUtils.getCurrentUserId();
-        orderLifecycleService.acceptOrderWithRetry(id, userId);
+        dispatchService.handleVolunteerResponse(id, userId, RespondAction.ACCEPT);
         return ResponseEntity.ok(Map.of("success", true, "orderId", id));
     }
 
+    /**
+     * @deprecated 已由 POST /{id}/respond 替代（串行派单专用）。
+     *             保留此接口仅为向后兼容旧版前端，新客户端请使用 /respond。
+     *             （B2 修复：原 rejectOrder 是空操作、不推进派单队列；现复用 /respond 的
+     *              DECLINE 逻辑，正确派给下一位志愿者。）
+     */
+    @Deprecated
     @PostMapping("/{id}/reject")
     public ResponseEntity<?> rejectOrder(@PathVariable @Min(1) Long id) {
         Long userId = SecurityUtils.getCurrentUserId();
-        orderLifecycleService.rejectOrder(id, userId);
+        dispatchService.handleVolunteerResponse(id, userId, RespondAction.DECLINE);
         return ResponseEntity.ok(Map.of("success", true));
     }
 

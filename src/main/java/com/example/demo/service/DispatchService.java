@@ -3,6 +3,8 @@ package com.example.demo.service;
 import com.example.demo.dto.RespondAction;
 import com.example.demo.dto.ScoredCandidate;
 import com.example.demo.entity.*;
+import com.example.demo.exception.OrderPermissionException;
+import com.example.demo.exception.OrderStatusException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.example.demo.event.DispatchAcceptedEvent;
 import com.example.demo.repository.RunOrderRepository;
@@ -125,7 +127,7 @@ public class DispatchService {
         // 1. 校验 dispatch_current 匹配
         Long currentVolunteer = getCurrentVolunteer(orderId);
         if (currentVolunteer == null || !currentVolunteer.equals(volunteerId)) {
-            throw new IllegalStateException("该订单当前未派送给您，无法接单");
+            throw new OrderStatusException("该订单当前未派送给您，无法接单");
         }
 
         // 2. 分布式锁防并发（TTL 30s，远超正常处理时间）
@@ -133,7 +135,7 @@ public class DispatchService {
         boolean locked = Boolean.TRUE.equals(
                 redisTemplate.opsForValue().setIfAbsent(lockKey, String.valueOf(volunteerId), 30, TimeUnit.SECONDS));
         if (!locked) {
-            throw new IllegalStateException("订单正在处理中，请稍后重试");
+            throw new OrderStatusException("订单正在处理中，请稍后重试");
         }
 
         try {
@@ -145,7 +147,7 @@ public class DispatchService {
                             .orElseThrow(() -> new IllegalArgumentException("订单不存在: " + orderId));
 
                     if (order.getStatus() != OrderStatus.PENDING_MATCH) {
-                        throw new IllegalStateException("订单状态不允许接单: " + order.getStatus());
+                        throw new OrderStatusException("订单状态不允许接单: " + order.getStatus());
                     }
 
                     // 3. 更新订单状态（先保存 DB，成功后再清 Redis）
@@ -167,7 +169,7 @@ public class DispatchService {
                     break;
                 } catch (OptimisticLockingFailureException e) {
                     if (attempts >= 3) {
-                        throw new IllegalStateException("订单并发冲突，请稍后重试");
+                        throw new OrderStatusException("订单并发冲突，请稍后重试");
                     }
                     log.warn("志愿者 {} 接单 {} 乐观锁冲突，第 {} 次重试", volunteerId, orderId, attempts);
                 }
@@ -184,7 +186,7 @@ public class DispatchService {
     public void handleDecline(Long orderId, Long volunteerId) {
         Long currentVolunteer = getCurrentVolunteer(orderId);
         if (currentVolunteer == null || !currentVolunteer.equals(volunteerId)) {
-            throw new IllegalStateException("该订单当前未派送给您");
+            throw new OrderStatusException("该订单当前未派送给您");
         }
 
         // 更新拒绝统计，并使 profile 缓存失效
@@ -240,6 +242,18 @@ public class DispatchService {
      */
     @Transactional
     public void handleVolunteerResponse(Long orderId, Long volunteerId, RespondAction action) {
+        // 志愿者资质校验：未完成注册/认证的志愿者不应响应派单（与原 OrderLifecycleService.acceptOrder 检查一致）。
+        // 派单虽只派给认证志愿者，但旧 /accept 与 /respond 共用此入口，显式校验才能给出友好的 403 反馈，
+        // 而非被派单归属校验以"未派送给您"409 拒绝（对未认证用户体验更差）。
+        VolunteerProfile profile = volunteerProfileRepository.findByUserId(volunteerId)
+                .orElseThrow(() -> new OrderPermissionException("VOLUNTEER_NOT_VERIFIED", "请先完成志愿者认证"));
+        if (profile.getRegistrationStep() != RegistrationStep.STEP_4_COMPLETED) {
+            throw new OrderPermissionException("VOLUNTEER_NOT_REGISTERED",
+                    "请先完成志愿者注册流程（当前步骤：" + profile.getRegistrationStep().name() + "）");
+        }
+        if (!Boolean.TRUE.equals(profile.getVerified())) {
+            throw new OrderPermissionException("VOLUNTEER_NOT_VERIFIED", "请先完成志愿者认证");
+        }
         switch (action) {
             case ACCEPT -> {
                 handleAccept(orderId, volunteerId);

@@ -10,6 +10,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -36,6 +38,7 @@ public class EmergencyService {
     private final NotificationService notificationService;
     private final StringRedisTemplate redisTemplate;
     private final UserRepository userRepository;
+    private final GeocodingService geocodingService;
 
     @Value("${app.emergency.cooldown-seconds:60}")
     private int cooldownSeconds;
@@ -50,7 +53,8 @@ public class EmergencyService {
                             CSUserRepository csUserRepository,
                             NotificationService notificationService,
                             StringRedisTemplate redisTemplate,
-                            UserRepository userRepository) {
+                            UserRepository userRepository,
+                            GeocodingService geocodingService) {
         this.eventRepository = eventRepository;
         this.notificationRepository = notificationRepository;
         this.runOrderRepository = runOrderRepository;
@@ -59,6 +63,7 @@ public class EmergencyService {
         this.notificationService = notificationService;
         this.redisTemplate = redisTemplate;
         this.userRepository = userRepository;
+        this.geocodingService = geocodingService;
     }
 
     /**
@@ -74,14 +79,17 @@ public class EmergencyService {
             throw new IllegalStateException("紧急事件触发过于频繁，请稍后再试");
         }
 
-        // 2. 校验订单归属
+        // 2. 校验订单归属（orderId 可选：进行中订单触发时校验参与者；独立 SOS 不传 orderId）
         Long orderId = request.getOrderId();
-        RunOrder order = runOrderRepository.findById(orderId)
-                .orElseThrow(() -> new IllegalArgumentException("订单不存在"));
-        boolean isBlind = order.getBlindUser().getId().equals(userId);
-        boolean isVolunteer = order.getVolunteer() != null && order.getVolunteer().getId().equals(userId);
-        if (!isBlind && !isVolunteer) {
-            throw new OrderPermissionException("NOT_ORDER_PARTICIPANT", "您无权操作此订单");
+        RunOrder order = null;
+        if (orderId != null) {
+            order = runOrderRepository.findById(orderId)
+                    .orElseThrow(() -> new IllegalArgumentException("订单不存在"));
+            boolean isBlind = order.getBlindUser().getId().equals(userId);
+            boolean isVolunteer = order.getVolunteer() != null && order.getVolunteer().getId().equals(userId);
+            if (!isBlind && !isVolunteer) {
+                throw new OrderPermissionException("NOT_ORDER_PARTICIPANT", "您无权操作此订单");
+            }
         }
 
         // 3. 创建紧急事件
@@ -279,7 +287,7 @@ public class EmergencyService {
      * 触发后即时处理：WebSocket 通知盲人 + 推送告警给志愿者 + 写入超时时间
      */
     private void handleEmergencyTriggered(EmergencyEvent event, RunOrder order) {
-        if (order.getVolunteer() != null) {
+        if (order != null && order.getVolunteer() != null) {
             // 1a. 有志愿者：通知志愿者，等待响应
             event.setStatus(EmergencyStatus.VOLUNTEER_NOTIFIED);
             event.setVolunteerNotifiedAt(LocalDateTime.now());
@@ -294,12 +302,12 @@ public class EmergencyService {
             notificationService.sendEmergencyVolunteerAlert(event, order.getVolunteer().getId());
             log.info("已通知志愿者，等待 {} 秒响应, eventId={}", volunteerTimeoutSeconds, event.getId());
         } else {
-            // 1b. 无志愿者（订单尚未匹配）：通知盲人后直接升级
+            // 1b. 无订单（独立 SOS）或订单未匹配到志愿者：通知盲人后直接升级
             eventRepository.save(event);
             // 通知盲人：已收到求助，正在紧急处理
             notificationService.sendNotification(event.getUserId(), "EMERGENCY_TRIGGERED",
                     TargetRole.BLIND_USER, null);
-            log.warn("紧急事件触发时订单无关联志愿者，直接升级处理, eventId={}", event.getId());
+            log.warn("紧急事件无关联志愿者（独立 SOS 或订单未匹配），直接升级处理, eventId={}", event.getId());
             escalateToEmergencyContacts(event);
         }
 
@@ -340,13 +348,37 @@ public class EmergencyService {
                     TargetRole.BLIND_USER, params);
         } else {
             log.warn("未找到主要紧急联系人, userId={}", event.getUserId());
+            // S5：盲人无紧急联系人时明确反馈，避免"正在通知家人"的承诺落空（用户无感知）
+            notificationService.sendNotification(event.getUserId(),
+                    "EMERGENCY_NO_CONTACT", TargetRole.BLIND_USER, null);
+            // 推进到 CS_HANDLING：避免事件卡在 VOLUNTEER_NOTIFIED 被 TimeoutScheduler 重复 escalate
+            event.setStatus(EmergencyStatus.CS_HANDLING);
+            eventRepository.save(event);
         }
     }
 
+    /**
+     * 格式化紧急位置，用于紧急联系人短信（受阿里云短信单变量 ≤35 字符限制）。
+     * 三级降级保证短信永远合规可发：文字地址 → 可读经纬度 → 求助引导语。
+     */
     private String formatLocation(EmergencyEvent event) {
-        if (event.getGpsLat() != null && event.getGpsLng() != null) {
-            return event.getGpsLat().toPlainString() + "," + event.getGpsLng().toPlainString();
+        BigDecimal lat = event.getGpsLat();
+        BigDecimal lng = event.getGpsLng();
+        if (lat == null || lng == null) {
+            return "位置获取失败，请尽快拨打其电话或报警110";
         }
-        return "未知";
+        // 优先：逆地理编码为文字地址（家人最易理解、最能快速定位）
+        String address = geocodingService.reverseGeocode(lat, lng).orElse(null);
+        if (address != null && !address.isBlank()) {
+            // 阿里云短信单变量上限 35 字符，保守截断到 30
+            return address.length() > 30 ? address.substring(0, 30) : address;
+        }
+        // 降级：可读经纬度（保留 5 位小数 ≈1 米精度，串长 <35 字符，家人可手动输入地图）
+        return "纬度" + trimCoord(lat) + " 经度" + trimCoord(lng);
+    }
+
+    /** 坐标保留 5 位小数，避免短信变量过长 */
+    private String trimCoord(BigDecimal coord) {
+        return coord.setScale(5, RoundingMode.HALF_UP).toPlainString();
     }
 }

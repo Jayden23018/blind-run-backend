@@ -248,6 +248,12 @@ public class TestHelper {
                 jsonEntity(token, null), String.class);
     }
 
+    /** 派单响应，返回原始响应（用于并发/被拒场景的状态码断言） */
+    public ResponseEntity<String> respondOrderRaw(String token, Long orderId, String action) {
+        return rest.postForEntity("/api/orders/" + orderId + "/respond",
+                jsonEntity(token, "{\"action\":\"" + action + "\"}"), String.class);
+    }
+
     /** 志愿者拒单 */
     public void rejectOrder(String token, Long orderId) {
         ResponseEntity<String> response = rest.postForEntity(

@@ -253,4 +253,60 @@ class OrderCancelTest {
         // 验证清除了 rematchNotifyAt
         assertNull(order.getRematchNotifyAt());
     }
+
+    /** S2：志愿者取消但重新匹配已达上限（rematchCount=3）→ 自动 CANCELLED(SYSTEM)，不再重派 */
+    @Test
+    void testVolunteerCancelReachesRematchLimit() {
+        User blindUser = new User();
+        blindUser.setId(1L);
+
+        User volunteer = new User();
+        volunteer.setId(2L);
+
+        RunOrder order = new RunOrder();
+        order.setId(1001L);
+        order.setBlindUser(blindUser);
+        order.setVolunteer(volunteer);
+        order.setStatus(OrderStatus.IN_PROGRESS);
+        order.setRematchCount(3); // 已达上限 MAX_REMATCH_COUNT
+
+        when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
+        when(runOrderRepository.save(any(RunOrder.class))).thenReturn(order);
+
+        orderLifecycleService.cancelOrder(1001L, 2L);
+
+        assertEquals(OrderStatus.CANCELLED, order.getStatus());
+        assertEquals(CancelledBy.SYSTEM, order.getCancelledBy());
+        assertNull(order.getVolunteer());
+        // 达上限不再重派：不发布匹配事件，改为通知盲人自动取消
+        verify(eventPublisher, never()).publishEvent(any());
+        verify(notificationService).sendNotification(eq(1L), eq("ORDER_AUTO_CANCELLED"),
+                eq(TargetRole.BLIND_USER), isNull());
+    }
+
+    /** S2：志愿者取消且未达上限（rematchCount=2）→ 仍进入 REMATCHING 并重派 */
+    @Test
+    void testVolunteerCancelBelowRematchLimit() {
+        User blindUser = new User();
+        blindUser.setId(1L);
+
+        User volunteer = new User();
+        volunteer.setId(2L);
+
+        RunOrder order = new RunOrder();
+        order.setId(1001L);
+        order.setBlindUser(blindUser);
+        order.setVolunteer(volunteer);
+        order.setStatus(OrderStatus.IN_PROGRESS);
+        order.setRematchCount(2); // 未达上限
+
+        when(runOrderRepository.findById(1001L)).thenReturn(Optional.of(order));
+        when(runOrderRepository.save(any(RunOrder.class))).thenReturn(order);
+
+        orderLifecycleService.cancelOrder(1001L, 2L);
+
+        assertEquals(OrderStatus.REMATCHING, order.getStatus());
+        assertEquals(3, order.getRematchCount());
+        verify(eventPublisher).publishEvent(any());
+    }
 }
