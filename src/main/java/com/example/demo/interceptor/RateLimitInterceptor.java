@@ -104,16 +104,14 @@ public class RateLimitInterceptor implements HandlerInterceptor {
     }
 
     /**
-     * Extract client IP from X-Forwarded-For header or remote address
+     * 提取真实客户端 IP。
+     *
+     * <p>依赖 {@code server.forward-headers-strategy=native}：Tomcat 的 RemoteIpValve 会
+     * 处理 X-Forwarded-For（剥离可信代理、还原真实客户端 IP）并写入 request.remoteAddr。
+     * 单层 Nginx 下默认 trustedProxies 为空，取 XFF 最右侧（Nginx 追加的真实 IP），
+     * 攻击者伪造 XFF 左侧任意值均无效——避免限流被伪造头绕过（防 S4 缺陷）。
      */
     private String extractClientIp(HttpServletRequest request) {
-        String xForwardedFor = request.getHeader("X-Forwarded-For");
-        if (xForwardedFor != null && !xForwardedFor.isEmpty()) {
-            // X-Forwarded-For can contain multiple IPs: "client, proxy1, proxy2"
-            // Take the first one (original client)
-            String[] ips = xForwardedFor.split(",");
-            return ips[0].trim();
-        }
         return request.getRemoteAddr();
     }
 }

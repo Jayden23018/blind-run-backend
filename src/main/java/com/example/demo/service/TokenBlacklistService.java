@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.Date;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -44,16 +45,35 @@ public class TokenBlacklistService {
     public void blacklistUser(Long userId, long remainingSeconds) {
         long ttl = Math.max(1, remainingSeconds);
         String key = REDIS_KEY_PREFIX + userId;
-        redisTemplate.opsForValue().setIfAbsent(key, "1", ttl, TimeUnit.SECONDS);
-        log.info("用户 {} 已加入 token 黑名单，TTL={}秒", userId, ttl);
+        // 存"拉黑时刻"的时间戳：此刻之前签发（iat ≤ 该时间戳）的 token 全部失效，
+        // 之后重新登录签发的新 token（iat 更大）不受影响 —— 避免登出后重新登录被锁死。
+        // 用 set 覆盖写（非 setIfAbsent），保证每次登出都刷新为最新时刻。
+        redisTemplate.opsForValue().set(key, String.valueOf(System.currentTimeMillis()), ttl, TimeUnit.SECONDS);
+        log.info("用户 {} 已加入 token 黑名单（按签发时间吊销），TTL={}秒", userId, ttl);
     }
 
     /**
-     * 检查用户是否在黑名单中
+     * 检查 token 是否被吊销
+     *
+     * <p>采用"按签发时间比对"：只有签发时间早于或等于"拉黑时刻"的 token 才被判定为已吊销。
+     * 这样用户登出后重新登录拿到的新 token（签发时间更晚）不会被旧黑名单误伤。
+     *
+     * @param userId   用户ID
+     * @param issuedAt token 的签发时间（JWT iat）
+     * @return true = 已吊销，禁止通行
      */
-    public boolean isBlacklisted(Long userId) {
+    public boolean isBlacklisted(Long userId, Date issuedAt) {
         String key = REDIS_KEY_PREFIX + userId;
-        return Boolean.TRUE.equals(redisTemplate.hasKey(key));
+        String blacklistedAtStr = redisTemplate.opsForValue().get(key);
+        if (blacklistedAtStr == null) {
+            return false;
+        }
+        if (issuedAt == null) {
+            // 无签发时间信息，保守判定为已吊销
+            return true;
+        }
+        long blacklistedAt = Long.parseLong(blacklistedAtStr);
+        return issuedAt.getTime() <= blacklistedAt;
     }
 
     /**

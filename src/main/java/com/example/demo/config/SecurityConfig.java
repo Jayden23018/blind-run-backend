@@ -4,6 +4,7 @@ import com.example.demo.filter.JwtFilter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -96,21 +97,24 @@ public class SecurityConfig {
                         // 紧急联系人需要 BLIND 角色
                         .requestMatchers("/api/users/*/emergency-contacts/**").hasRole("BLIND")
                         // 订单：创建/取消/继续等待 → BLIND
-                        .requestMatchers("POST /api/orders").hasRole("BLIND")
-                        .requestMatchers("POST /api/orders/*/cancel").hasRole("BLIND")
-                        .requestMatchers("PUT /api/orders/*/keep-waiting").hasRole("BLIND")
+                        // ⚠️ 必须用 requestMatchers(HttpMethod, pattern) 重载：Spring Security 6 的
+                        // MvcRequestMatcher 不解析字符串内的方法前缀，"POST /api/orders" 会被当成字面
+                        // 路径而永不匹配（S3 评审缺陷的真正根因，原裸字符串规则全部失效）。
+                        .requestMatchers(HttpMethod.POST, "/api/orders").hasRole("BLIND")
+                        .requestMatchers(HttpMethod.POST, "/api/orders/*/cancel").hasAnyRole("BLIND", "VOLUNTEER")  // 取消：盲人取消订单 / 志愿者取消转 REMATCHING（cancelOrder 双角色分支）
+                        .requestMatchers(HttpMethod.PUT, "/api/orders/*/keep-waiting").hasRole("BLIND")
                         // 订单：接单/拒绝/响应/完成/出发/到达/可接单列表 → VOLUNTEER
-                        .requestMatchers("POST /api/orders/*/accept").hasRole("VOLUNTEER")
-                        .requestMatchers("POST /api/orders/*/reject").hasRole("VOLUNTEER")
-                        .requestMatchers("POST /api/orders/*/respond").hasRole("VOLUNTEER")
-                        .requestMatchers("POST /api/orders/*/finish").hasRole("VOLUNTEER")
-                        .requestMatchers("POST /api/orders/*/en-route").hasRole("VOLUNTEER")
-                        .requestMatchers("POST /api/orders/*/arrived").hasRole("VOLUNTEER")
-                        .requestMatchers("GET /api/orders/available").hasRole("VOLUNTEER")
+                        .requestMatchers(HttpMethod.POST, "/api/orders/*/accept").hasRole("VOLUNTEER")
+                        .requestMatchers(HttpMethod.POST, "/api/orders/*/reject").hasRole("VOLUNTEER")
+                        .requestMatchers(HttpMethod.POST, "/api/orders/*/respond").hasRole("VOLUNTEER")
+                        .requestMatchers(HttpMethod.POST, "/api/orders/*/finish").hasRole("VOLUNTEER")
+                        .requestMatchers(HttpMethod.POST, "/api/orders/*/en-route").hasRole("VOLUNTEER")
+                        .requestMatchers(HttpMethod.POST, "/api/orders/*/arrived").hasRole("VOLUNTEER")
+                        .requestMatchers(HttpMethod.GET, "/api/orders/available").hasRole("VOLUNTEER")
                         // 订单：评价 → BLIND
-                        .requestMatchers("POST /api/orders/*/review").hasRole("BLIND")
-                        // 订单：查询类 → BLIND 或 VOLUNTEER
-                        .requestMatchers("/api/orders/**").hasAnyRole("BLIND", "VOLUNTEER")
+                        .requestMatchers(HttpMethod.POST, "/api/orders/*/review").hasRole("BLIND")
+                        // 订单：查询类（GET）→ BLIND 或 VOLUNTEER；写操作已在上方逐条显式授权
+                        .requestMatchers(HttpMethod.GET, "/api/orders/**").hasAnyRole("BLIND", "VOLUNTEER")
                         // 其他所有接口需要认证（必须携带有效 JWT token）
                         .anyRequest().authenticated()
                 )

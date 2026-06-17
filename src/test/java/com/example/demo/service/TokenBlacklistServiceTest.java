@@ -19,6 +19,10 @@ import static org.mockito.Mockito.*;
 
 /**
  * TokenBlacklistService 单元测试
+ *
+ * 黑名单采用"按签发时间比对"：blacklistUser 存"拉黑时刻"时间戳（set 覆盖写），
+ * isBlacklisted(userId, issuedAt) 判定 token 签发时间是否早于该时刻。
+ * 这样用户登出后重新登录拿到的新 token 不会被旧黑名单锁死。
  */
 @ExtendWith(MockitoExtension.class)
 class TokenBlacklistServiceTest {
@@ -40,50 +44,74 @@ class TokenBlacklistServiceTest {
         service = new TokenBlacklistService(redisTemplate, jwtUtil, 86400000L);
     }
 
-    // === blacklistUser ===
+    // === blacklistUser：用 set 覆盖写，值为"拉黑时刻"时间戳 ===
 
     @Test
-    void blacklistUser_setsRedisKeyWithTtl() {
+    void blacklistUser_setsTimestampWithTtl() {
         service.blacklistUser(42L, 3600);
 
-        verify(valueOps).setIfAbsent(eq("jwt:blacklist:42"), eq("1"), eq(3600L), eq(TimeUnit.SECONDS));
+        verify(valueOps).set(eq("jwt:blacklist:42"), argThat(s -> s.matches("\\d+")),
+                eq(3600L), eq(TimeUnit.SECONDS));
     }
 
     @Test
     void blacklistUser_minimumTtlIs1() {
         service.blacklistUser(42L, 0);
 
-        verify(valueOps).setIfAbsent(eq("jwt:blacklist:42"), eq("1"), eq(1L), eq(TimeUnit.SECONDS));
+        verify(valueOps).set(eq("jwt:blacklist:42"), anyString(), eq(1L), eq(TimeUnit.SECONDS));
     }
 
     @Test
     void blacklistUser_negativeTtlClampedTo1() {
         service.blacklistUser(42L, -100);
 
-        verify(valueOps).setIfAbsent(eq("jwt:blacklist:42"), eq("1"), eq(1L), eq(TimeUnit.SECONDS));
-    }
-
-    // === isBlacklisted ===
-
-    @Test
-    void isBlacklisted_returnsTrue_whenKeyExists() {
-        when(redisTemplate.hasKey("jwt:blacklist:42")).thenReturn(true);
-
-        assertTrue(service.isBlacklisted(42L));
+        verify(valueOps).set(eq("jwt:blacklist:42"), anyString(), eq(1L), eq(TimeUnit.SECONDS));
     }
 
     @Test
-    void isBlacklisted_returnsFalse_whenKeyMissing() {
-        when(redisTemplate.hasKey("jwt:blacklist:42")).thenReturn(false);
+    void blacklistUser_usesSet_notSetIfAbsent() {
+        service.blacklistUser(42L, 3600);
 
-        assertFalse(service.isBlacklisted(42L));
+        // 每次登出都需刷新为最新拉黑时刻，必须用 set 覆盖写，不能用 setIfAbsent
+        verify(valueOps).set(anyString(), anyString(), anyLong(), any(TimeUnit.class));
+        verify(valueOps, never()).setIfAbsent(anyString(), anyString(), anyLong(), any(TimeUnit.class));
+    }
+
+    // === isBlacklisted：按签发时间比对 ===
+
+    @Test
+    void isBlacklisted_returnsFalse_whenNotBlacklisted() {
+        when(valueOps.get("jwt:blacklist:42")).thenReturn(null);
+
+        assertFalse(service.isBlacklisted(42L, new Date()));
     }
 
     @Test
-    void isBlacklisted_returnsFalse_whenRedisReturnsNull() {
-        when(redisTemplate.hasKey("jwt:blacklist:42")).thenReturn(null);
+    void isBlacklisted_returnsTrue_whenTokenIssuedBeforeBlacklistMoment() {
+        long blacklistMoment = System.currentTimeMillis();
+        when(valueOps.get("jwt:blacklist:42")).thenReturn(String.valueOf(blacklistMoment));
 
-        assertFalse(service.isBlacklisted(42L));
+        // 旧 token：签发于拉黑之前 → 被吊销
+        Date oldIssuedAt = new Date(blacklistMoment - 60000);
+        assertTrue(service.isBlacklisted(42L, oldIssuedAt));
+    }
+
+    @Test
+    void isBlacklisted_returnsFalse_whenTokenIssuedAfterBlacklistMoment() {
+        long blacklistMoment = System.currentTimeMillis();
+        when(valueOps.get("jwt:blacklist:42")).thenReturn(String.valueOf(blacklistMoment));
+
+        // 重新登录的新 token：签发于拉黑之后 → 放行（这正是 S1 修复的锁死场景）
+        Date newIssuedAt = new Date(blacklistMoment + 60000);
+        assertFalse(service.isBlacklisted(42L, newIssuedAt));
+    }
+
+    @Test
+    void isBlacklisted_returnsTrue_whenIssuedAtNull() {
+        when(valueOps.get("jwt:blacklist:42")).thenReturn(String.valueOf(System.currentTimeMillis()));
+
+        // 无签发时间信息，保守判定为已吊销
+        assertTrue(service.isBlacklisted(42L, null));
     }
 
     // === blacklistUserFromToken ===
@@ -97,7 +125,7 @@ class TokenBlacklistServiceTest {
 
         service.blacklistUserFromToken("valid.token");
 
-        verify(valueOps).setIfAbsent(eq("jwt:blacklist:42"), eq("1"), anyLong(), eq(TimeUnit.SECONDS));
+        verify(valueOps).set(eq("jwt:blacklist:42"), anyString(), anyLong(), eq(TimeUnit.SECONDS));
     }
 
     @Test
@@ -128,17 +156,6 @@ class TokenBlacklistServiceTest {
         service.blacklistUserWithMaxTtl(99L);
 
         // jwtExpirationMs=86400000 → 86400 seconds
-        verify(valueOps).setIfAbsent(eq("jwt:blacklist:99"), eq("1"), eq(86400L), eq(TimeUnit.SECONDS));
-    }
-
-    // === TTL overwrite protection (C-1 fix) ===
-
-    @Test
-    void blacklistUser_usesSetIfAbsent_notSet() {
-        service.blacklistUser(42L, 3600);
-
-        // setIfAbsent preserves existing longer TTL instead of overwriting
-        verify(valueOps).setIfAbsent(anyString(), anyString(), anyLong(), any(TimeUnit.class));
-        verify(valueOps, never()).set(anyString(), anyString(), anyLong(), any(TimeUnit.class));
+        verify(valueOps).set(eq("jwt:blacklist:99"), anyString(), eq(86400L), eq(TimeUnit.SECONDS));
     }
 }

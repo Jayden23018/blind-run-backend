@@ -65,8 +65,8 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
         try {
             Long userId = Long.parseLong(claims.getSubject());
 
-            // 检查 token 黑名单
-            if (tokenBlacklistService.isBlacklisted(userId)) {
+            // 检查 token 黑名单 —— 按签发时间比对，重新登录的新 token 不受影响
+            if (tokenBlacklistService.isBlacklisted(userId, claims.getIssuedAt())) {
                 log.warn("WebSocket 握手失败：用户 {} token 已被吊销", userId);
                 return false;
             }
