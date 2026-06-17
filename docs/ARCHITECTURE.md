@@ -7,7 +7,7 @@
 ### 核心功能
 - **短信验证码认证**: 手机号验证，限时验证码
 - **实时匹配**: 基于地理位置的志愿者选择，使用 Redis 缓存
-- **订单生命周期管理**: 状态机驱动的订单处理（7种状态）
+- **订单生命周期管理**: 状态机驱动的订单处理（9种状态）
 - **紧急响应**: 志愿者确认流程，30秒超时，客服升级
 - **接近检测**: 盲人用户与志愿者之间的实时距离提醒
 - **WebSocket 通知**: 多角色实时推送（盲人 + 志愿者 + 客服）
@@ -89,8 +89,7 @@ graph TD
 | BlindLocationController | `/api/blind/location` | 盲人位置上报 |
 | EmergencyContactController | `/api/users/{id}/emergency-contacts` | 紧急联系人 CRUD |
 | VolunteerController | `/api/volunteer/**` | 档案、认证、位置 |
-| OrderController | `/api/orders/**` | 订单 CRUD + 接单/拒单/完成/取消 |
-| OrderStatusController | `/api/orders/{id}/en-route\|arrived\|status-logs` | 状态转换 + 日志 |
+| OrderController | `/api/orders/**` | 订单 CRUD + 接单/拒单/完成/取消/状态转换 + 日志 |
 | EmergencyController | `/api/emergency/**` | 触发 + 志愿者响应 |
 | CsController | `/api/cs/**` | 客服紧急操作 |
 | CsAuthController | `/api/cs/auth/**` | 客服用户名密码登录 |
@@ -284,7 +283,7 @@ stateDiagram-v2
 | IN_PROGRESS/EN_ROUTE/ARRIVED | COMPLETED | 完成 | 志愿者 |
 | IN_PROGRESS | CANCELLED | 取消（爽约） | 志愿者 |
 
-每次状态变更都会被 `OrderStatusLogService` 记录，并触发 `NotificationService.sendOrderStatusChange()`。
+每次状态变更都会被 `OrderStatusLogService` 记录，并通过 `NotificationService.sendNotification()` 推送 WebSocket 通知。
 
 ---
 
@@ -351,6 +350,18 @@ flowchart TD
     I --> J[WebSocket 推送给每个志愿者]
     J --> K[更新状态为 PENDING_ACCEPT]
 ```
+
+#### 评分算法（ScoringService 5 维评分，权重和 = 100%）
+
+| 维度 | 权重 | 说明 |
+|------|------|------|
+| 距离 | 40% | 越近分越高，超距离阈值 = 0 |
+| 时间重叠 | 25% | 志愿者可用时间与订单时间的重叠率 |
+| 评分 | 20% | 历史 avgRating（1.0-5.0），无评分默认 0.7 |
+| 接单率 | 10% | acceptanceRate（0.0-1.0），无记录默认 0.7 |
+| 配速匹配 | 5% | 盲人配速偏好与志愿者配速范围的匹配度 |
+
+**硬性过滤条件**（任一不满足直接排除）：① 志愿者在线；② 距离在当前轮次搜索半径内；③ `registrationStep == STEP_4_COMPLETED`；④ 导盲犬兼容；⑤ 无可用时间时跳过时间过滤。
 
 ### Redis 键
 
@@ -489,6 +500,110 @@ sequenceDiagram
 | SmsService 接口 + AliyunSmsServiceImpl | 阿里云号码认证服务实现 |
 
 ---
+
+## 补充流程图
+
+> 以下原属 DIAGRAMS.md（已合并），保留客服认证、重匹配、WebSocket 生命周期、接近检测的可视化。
+
+### 客服认证
+
+```mermaid
+sequenceDiagram
+    actor CS as 客服控制台
+    participant Ctrl as CsAuthController
+    participant Svc as CSAuthService
+    participant Repo as CSUserRepository
+    participant Jwt as JwtUtil
+
+    CS->>Ctrl: POST /api/cs/auth/login {username, password}
+    Ctrl->>Svc: login(username, password)
+    Svc->>Repo: findByUsername(username)
+    alt 用户不存在
+        Repo-->>Svc: empty
+        Svc-->>Ctrl: RuntimeException("用户名或密码错误")
+        Ctrl-->>CS: 401
+    else 用户存在
+        Repo-->>Svc: CSUser
+        Svc->>Svc: BCrypt.matches(password, passwordHash)
+        alt 密码错误
+            Svc-->>Ctrl: RuntimeException
+            Ctrl-->>CS: 401
+        else 密码正确
+            Svc->>Jwt: generateToken(userId, csRole)
+            Svc-->>Ctrl: [token, role]
+            Ctrl-->>CS: 200 {token, role}
+        end
+    end
+```
+
+### 重新匹配（志愿者取消）
+
+```mermaid
+sequenceDiagram
+    actor Vol as 志愿者
+    participant OS as OrderService
+    participant EP as EventPublisher
+    participant NS as NotificationService
+    actor Blind as 盲人用户
+    participant TS as TimeoutScheduler
+    actor NewVol as 新志愿者
+
+    Vol->>OS: POST /api/orders/{id}/cancel
+    OS->>OS: 检测到志愿者取消（PENDING_ACCEPT/EN_ROUTE/ARRIVED）
+    OS->>OS: 设置状态 = REMATCHING，清除 volunteerId，rematchCount++
+    OS->>OS: 设置 rematchNotifyAt = now() + 300s
+    OS->>EP: publishEvent(OrderCreatedEvent)
+    OS->>NS: sendNotification → 盲人："志愿者已取消，正在重新匹配"
+    OS-->>Vol: 200 OK
+    alt 5分钟超时 — 无志愿者
+        TS->>OS: handleRematchTimeout(orderId)
+        OS->>NS: 盲人："暂时没有可用志愿者，仍在等待"
+    else 新志愿者接单
+        NewVol->>OS: POST /respond {"action":"ACCEPT"}
+        OS->>OS: 状态 = IN_PROGRESS
+    else 盲人取消
+        Blind->>OS: POST /cancel
+        OS->>OS: 状态 = CANCELLED
+    end
+```
+
+### WebSocket 生命周期
+
+```mermaid
+sequenceDiagram
+    actor Client as 客户端（盲人/志愿者/客服）
+    participant Handshake as JwtHandshakeInterceptor
+    participant Handler as WebSocketHandler
+    participant Registry as UnifiedSessionRegistry
+
+    Client->>Handshake: ws://host/ws/{role}?token=jwt
+    Handshake->>Handshake: 验证 JWT，提取 userId
+    Handler->>Registry: register(userId, role, session)
+    Registry->>Client: sendToUser / sendToCs（跨实例经 Redis Pub/Sub）
+    Client->>Handler: 关闭
+    Handler->>Registry: unregister(userId)
+```
+
+### 接近检测
+
+```mermaid
+flowchart TD
+    A[志愿者上报位置] --> B[VolunteerLocationService.updateLocation]
+    B --> C[写 Redis vol:loc + MySQL]
+    C --> D{有进行中订单?}
+    D -->|否| F[停止]
+    D -->|是| G[推 VOLUNTEER_LOCATION_UPDATE 给盲人]
+    G --> H{状态 = DRIVER_EN_ROUTE?}
+    H -->|否| F
+    H -->|是| I[取盲人位置 blind:loc]
+    I --> K[ProximityService.checkAndNotify]
+    K --> L[Haversine 距离]
+    L --> M{距离 < 阈值?}
+    M -->|否| F
+    M -->|是| N{已提醒? proximity:notified:orderId}
+    N -->|是| F
+    N -->|否| O[设 proximity:notified + 推 PROXIMITY_ALERT]
+```
 
 ## 配置
 

@@ -264,11 +264,13 @@ PENDING → VOLUNTEER_NOTIFIED → VOLUNTEER_CONFIRMED → CONTACT_NOTIFIED → 
 **EmergencyTriggerRequest**:
 ```json
 {
-  "orderId": 123,        // 必填
-  "gpsLat": 39.9042,     // 可选
+  "orderId": 123,        // 可选（A1：独立 SOS 可不传；传则校验是否订单参与者）
+  "gpsLat": 39.9042,     // 可选（A2：可不传，无坐标短信走"报警110"引导）
   "gpsLng": 116.4074     // 可选
 }
 ```
+
+> **A1/A2/S5 更新**：① 无 `orderId` 可触发独立 SOS（直接升级紧急联系人 + 推客服）；② 紧急联系人短信位置**三级降级**——逆地理编码文字地址（高德 regeo，需配 `AMAP_WEB_KEY`）→ 可读经纬度 → "报警110"引导，**短信禁链接**（违反运营商规定）；③ 用户**未设置紧急联系人**时，盲人收到"未找到联系人，已转客服"通知，事件转 `CS_HANDLING`。
 
 **Volunteer Response**:
 ```json
@@ -522,13 +524,13 @@ Authorization: Bearer <token>
 | 限流保护 | auth 10/min, 注册 20/min, 通用 60/min |
 | 客服登录锁定 | 5 次失败锁定 15 分钟 |
 
-### 模拟实现（接口可用，但未接真实服务）
+### 第三方服务接入状态
 
-| 功能 | 当前行为 | 接入真实服务需要 |
-|------|---------|-----------------|
-| 紧急联系人短信通知 | 只打日志，不发短信 | 申请阿里云通知类短信签名+模板 |
-| 隐私号码通话 | 返回假号码 170xxx，状态 CONNECTED | 开通阿里云隐私号码服务 |
-| 人脸验证 | 自动通过，返回"当前阶段自动通过" | 接入第三方人脸识别服务 |
+| 功能 | 当前状态 | 说明 |
+|------|---------|------|
+| 紧急联系人短信通知 | ✅ 已接入 | 阿里云 Dysmsapi（`EMERGENCY_ALERT` 等模板），非模拟 |
+| 人脸验证（志愿者 Step 3） | ✅ 已接入 | 阿里云金融级实人认证 `ContrastFaceVerify`（`ID_MIN`），非 stub |
+| 隐私号码通话 | ⚠️ 默认 mock | `aliyun.private-number.enabled=false` 时返回假号码 170xxx；开通阿里云隐私号服务并设 `enabled=true` 可接真实 |
 
 ### 未实现
 
