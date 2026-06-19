@@ -324,17 +324,24 @@ public class EmergencyService {
         if (primaryContact != null) {
             User triggerUser = userRepository.findById(event.getUserId()).orElse(null);
             String userName = triggerUser != null ? triggerUser.getName() : "未知用户";
-            notificationService.sendEmergencyAlertSms(
-                    primaryContact.getPhone(),
-                    userName,
-                    event.getTriggeredAt().toString(),
-                    formatLocation(event));
+            NotifyStatus smsStatus = NotifyStatus.SENT;
+            try {
+                notificationService.sendEmergencyAlertSms(
+                        primaryContact.getPhone(),
+                        userName,
+                        event.getTriggeredAt().toString(),
+                        formatLocation(event));
+            } catch (Exception e) {
+                smsStatus = NotifyStatus.FAILED;
+                log.error("紧急联系人短信发送失败，eventId={}, phone={}: {}",
+                        event.getId(), primaryContact.getPhone(), e.getMessage());
+            }
 
             EmergencyNotification notification = new EmergencyNotification();
             notification.setEventId(event.getId());
             notification.setContactId(primaryContact.getId());
             notification.setNotifyType(NotifyType.SMS_TO_CONTACT);
-            notification.setStatus(NotifyStatus.SENT);
+            notification.setStatus(smsStatus);
             notification.setContent("紧急事件升级，自动通知紧急联系人");
             notificationRepository.save(notification);
 
