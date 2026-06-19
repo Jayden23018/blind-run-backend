@@ -1,5 +1,17 @@
 # 变更日志
 
+## [1.4.2] - 2026-06-20
+
+### 缺陷修复 — 紧急服务 SMS 异常（E1）
+
+- **E1 `notifyContact`/`resolveEvent` SMS 未捕获**：两处 SMS 调用加 try-catch，SMS 失败仅记 error 日志，DB 事务正常提交（修复前 SMS 异常触发 `@Transactional` 回滚，接口返回 500 且状态变更丢失）。
+
+### 验证
+
+生产测试 `PUT /api/cs/emergency-events/7/resolve` → HTTP 200（修复前 500）。
+
+---
+
 ## [1.4.1] - 2026-06-19
 
 ### 缺陷修复 — 派单竞态条件（D1/D2）

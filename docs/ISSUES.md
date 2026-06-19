@@ -7,7 +7,7 @@
 > - 新评审发现的问题，按优先级（P0 > P1 > P2）追加到「待处理」对应区块。
 > - 每条标注信息可信度：**【已确证】**（读代码/文档确认）或 **【⚠️ 待核实】**（概括，需进一步核实）。
 
-**最近更新**：2026-06-19（新增 D1/D2 派单竞态条件修复）
+**最近更新**：2026-06-20（新增 E1 紧急服务 SMS 异常未捕获修复）
 
 ---
 
@@ -16,7 +16,7 @@
 | 优先级 | 已解决 | 待处理 |
 |--------|--------|--------|
 | P0（影响核心功能/安全） | ✅ 4 / 4 | 0 |
-| P1（重要，应修） | ✅ 7 / 7 | 0 |
+| P1（重要，应修） | ✅ 8 / 8 | 0 |
 | P2（增强/优化） | ✅ 5 / 5 | 0 |
 
 **评审来源**：2026-06-17 首次全面代码评审。
@@ -121,6 +121,14 @@
 - **方案**：加 `@Transactional(propagation = Propagation.REQUIRES_NEW)`——在新事务中执行，绕过 Spring 限制，同时保证 `onDispatchAccepted` 的 DB 写操作具有事务保护。
 - **涉及文件**：`OrderLifecycleService.onDispatchAccepted`（commit `d0cf543`）
 - **验证**：服务正常启动（无崩溃）+ 生产 E2E 测试接单后状态 IN_PROGRESS 正确。
+
+### [P1] E1 · EmergencyService `notifyContact`/`resolveEvent` SMS 异常未捕获导致 500 — `2026-06-20` 【已确证】
+
+- **问题**：`notifyContact()` 和 `resolveEvent()` 直接调用 `notificationService.sendEmergencyAlertSms()` / `sendEmergencyResolvedSms()`，无 try-catch。阿里云 SMS 在测试/生产环境中可能因配置缺失或网络超时抛出异常，该异常由方法上的 `@Transactional` 捕获后触发回滚，返回 HTTP 500，且 DB 状态变更也被回滚。同一方法内的 `escalateToEmergencyContacts` 已在 commit `a88b699` 中修复，两处遗漏。
+- **影响**：CS 调用「通知联系人」和「标记解决」接口时，SMS 失败直接导致整个接口 500，DB 状态变更（`CONTACT_NOTIFIED` / `RESOLVED`）也同时回滚，造成事件状态错误卡住。
+- **方案**：对两处 SMS 调用各加 try-catch，SMS 失败仅记 `log.error` 告警，不抛出，DB 事务正常提交。复用 `escalateToEmergencyContacts` 中已有的修复模式。
+- **涉及文件**：`EmergencyService.notifyContact`（`sendEmergencyAlertSms` 调用处）、`EmergencyService.resolveEvent`（`sendEmergencyResolvedSms` 调用处）
+- **验证**：生产测试 `PUT /api/cs/emergency-events/7/resolve` → HTTP 200 `{success:true}`（修复前 500）。
 
 ### [P1] P1 · 多实例 WebSocket 通知（更正：已解决） — `2026-06-17` 【已确证】
 

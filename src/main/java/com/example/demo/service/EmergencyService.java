@@ -230,11 +230,16 @@ public class EmergencyService {
         // 发送紧急求助模板短信
         User triggerUser = userRepository.findById(event.getUserId())
                 .orElseThrow(() -> new IllegalStateException("触发用户不存在"));
-        notificationService.sendEmergencyAlertSms(
-                primaryContact.getPhone(),
-                triggerUser.getName(),
-                event.getTriggeredAt().toString(),
-                formatLocation(event));
+        try {
+            notificationService.sendEmergencyAlertSms(
+                    primaryContact.getPhone(),
+                    triggerUser.getName(),
+                    event.getTriggeredAt().toString(),
+                    formatLocation(event));
+        } catch (Exception e) {
+            log.error("通知联系人短信发送失败，eventId={}, phone={}: {}",
+                    eventId, primaryContact.getPhone(), e.getMessage());
+        }
 
         log.info("已通知紧急联系人, eventId={}, contactId={}", eventId, primaryContact.getId());
     }
@@ -256,10 +261,15 @@ public class EmergencyService {
         // 通知紧急联系人：紧急求助已解除
         contactRepository.findByUserIdAndIsPrimaryTrue(event.getUserId()).ifPresent(contact -> {
             User user = userRepository.findById(event.getUserId()).orElse(null);
-            notificationService.sendEmergencyResolvedSms(
-                    contact.getPhone(),
-                    user != null ? user.getName() : "未知用户",
-                    LocalDateTime.now().toString());
+            try {
+                notificationService.sendEmergencyResolvedSms(
+                        contact.getPhone(),
+                        user != null ? user.getName() : "未知用户",
+                        LocalDateTime.now().toString());
+            } catch (Exception e) {
+                log.error("解除通知短信发送失败，eventId={}, phone={}: {}",
+                        eventId, contact.getPhone(), e.getMessage());
+            }
         });
 
         log.info("紧急事件已解决, eventId={}, csUserId={}", eventId, csUserId);
