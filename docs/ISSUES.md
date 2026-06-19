@@ -113,6 +113,30 @@
 - **核实结论**：代码库**已实现完整的 Redis Pub/Sub 跨实例转发**——`UnifiedSessionRegistry.sendToUser` 本机无 session 时转发 Redis、`WebSocketMessageBroker` 的 `ws:messages` 频道桥接 USER/CS_BROADCAST、`RedisWebSocketConfig` 全实例订阅。生产当前单实例未承压，但跨实例机制已预先就绪。
 - **处理**：无需改动代码，仅更正背景描述并标记已解决。
 
+### [P2] V1 · 超时统计与主动拒绝分开 — `2026-06-19` 【已确证】
+
+- **核实**：`handleVolunteerTimeout` 调 `updateDeclineStats`，与主动拒绝走同一 SQL，超时 `total_declined+1` 拉低 `acceptanceRate = accepted/(accepted+declined)`。原 ISSUES 写"权重×10"不准（实际 `WEIGHT_ACCEPTANCE=5.0`，配速才是 10，Javadoc 也写反）。
+- **方案（方案A）**：`VolunteerProfile` 加 `totalTimeout` 字段；Repository 加 `atomicIncrementTimeoutStats`（递增 total_dispatched + total_timeout，不动 total_declined/accepted）；`handleVolunteerTimeout` 改调它。超时对 acceptanceRate 完全中性（不计分子分母），且保留超时数据供分析。
+- **理由**：主动拒绝是主观意愿，超时是客观未响应（网络/没看到），混为一谈对志愿者不公；单独统计保留数据。
+- **涉及**：`VolunteerProfile`、`VolunteerProfileRepository`、`DispatchService.handleVolunteerTimeout`、`ScoringService` Javadoc 更正。
+
+### [P2] A8 · 派单进度反馈 + 修复模板缺失 bug — `2026-06-19` 【已确证】
+
+- **核实**：派单期间盲人零逐志愿者进度；且 `DISPATCH_EXPANDING`（扩圈）、`ORDER_AUTO_CANCELLED`（自动取消）三个触发点都在发通知，但 **data.sql 无模板 → 静默失效**（订单被系统取消盲人收不到通知，真 bug）。
+- **方案**：
+  - ① 补缺失模板（修 bug）：`DISPATCH_EXPANDING` + `ORDER_AUTO_CANCELLED` → 立即生效。
+  - ② 加 `DISPATCH_STARTED`（首次派单正向反馈，参考滴滴"正在为您呼叫"节奏：首次 + 扩圈，不每志愿者打扰）。
+- **理由**：补模板是修 bug（必须）；进度反馈参考滴滴等待期正向信号设计（告知"正在呼叫"而非"还没找到"），避免 30s/次的噪音打扰。
+- **涉及**：`data.sql`（3 条新模板）、`DispatchService.initiateDispatch`（发 DISPATCH_STARTED）。
+
+### [P2] A3 · TTS 紧急文案按无障碍原则修订 — `2026-06-19` 【已确证】
+
+- **核实**：ttsText 随 WS 消息下发用于语音播报；紧急文案铺垫冗长（`EMERGENCY_NO_CONTACT` 37 字）、"点击通话按钮"对全盲用户是视觉词、紧急等待期无时效预期。
+- **方案**：按紧急语音最佳实践（注意-说事-动作-简短，参考 Baldwin Boxall/Hall of States 疏散广播原则 + WCAG）修订紧急 ttsText：前置关键动作、去视觉词、加后续指引。
+- **理由**：紧急场景盲人需 1-2 秒抓核心，冗长铺垫延迟关键信息；视障用户依赖听觉，文案应口语化、避免视觉词。
+- **涉及**：`data.sql`（3 条紧急模板 tts_text）、`NotificationService`（2 处硬编码 tts）。
+- **后续**：文案最终措辞建议与视障用户/无障碍专家 1 轮共创定稿。
+
 ---
 
 ## 🟡 待处理 — P2（增强/优化）
@@ -128,25 +152,6 @@
 - **问题**：Hibernate `ddl-auto=update` 在生产使用。
 - **影响**：表结构漂移、非预期 DDL、生产事故风险。
 - **建议**：生产改 `validate` 或 `none`，引入 Flyway/Liquibase 管理迁移。
-
-### A3 · TTS 文案审查 【⚠️ 待核实】
-
-- **问题**：WebSocket 消息含 `ttsText` 字段（供语音播报），文案是否适合视障场景（紧急提示是否清晰、是否过长、措辞是否友好）尚未审查。
-- **涉及**：各通知模板的 `ttsText`
-- **建议**：待审查所有 `ttsText`，必要时与视障用户共创。
-
-### V1 · 志愿者超时计入拒绝率 【⚠️ 待核实】
-
-- **问题**：`VolunteerProfile` 有 `totalDecled` / `acceptanceRate`，`DispatchService` 在 accept/decline/timeout 时更新。疑似**超时未响应**也被计入 declined。
-- **影响**：志愿者超时（非主动拒绝）拉低 `acceptanceRate`，进而影响后续派单评分（`acceptance×10`），对志愿者不公。
-- **建议**：超时与主动拒绝分开统计。
-- **待核实**：读 `DispatchService` 确认 timeout 路径是否真的递增 `totalDeclined`。
-
-### A8 · 订单等待期无进度反馈 【⚠️ 待核实】
-
-- **问题**：订单 `PENDING_MATCH` / 串行派单期间，盲人对进度无感知。
-- **影响**：盲人不知道派到第几个志愿者、还要等多久，产生焦虑。
-- **建议**：派单轮次/进度通过 WebSocket 反馈给盲人。
 
 ---
 

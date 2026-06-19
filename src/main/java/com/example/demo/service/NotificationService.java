@@ -226,8 +226,8 @@ public class NotificationService {
                     ? "志愿者已确认您需要帮助，正在通知紧急联系人"
                     : "志愿者确认这是一次误触，紧急事件已解除";
             String tts = needHelp
-                    ? "志愿者确认你需要帮助，正在通知紧急联系人"
-                    : "这是一次误触，紧急事件已解除";
+                    ? "志愿者已确认你需要帮助，正在通知紧急联系人"
+                    : "志愿者确认这是误触，紧急事件已解除。若仍需帮助请重新触发";
             Map<String, Object> blindMsg = buildEnvelope("EMERGENCY_RESOLVED_BY_VOLUNTEER");
             blindMsg.put("eventId", event.getId());
             blindMsg.put("message", displayText);
@@ -262,7 +262,7 @@ public class NotificationService {
             Map<String, Object> msg = buildEnvelope("EMERGENCY_CONTACT_NOTIFIED");
             msg.put("eventId", eventId);
             msg.put("message", "已通过短信通知您的联系人" + contactName + "，请保持冷静");
-            msg.put("ttsText", "已通知你的联系人" + contactName + "，请保持冷静");
+            msg.put("ttsText", "已通知你的联系人" + contactName + "，请保持冷静，帮助正在路上");
             msg.put("priority", NotificationPriority.HIGH.name());
 
             sessionRegistry.sendToUser(userId, objectMapper.writeValueAsString(msg));

@@ -126,9 +126,13 @@ public class VolunteerProfile {
     @Column(name = "total_accepted")
     private Integer totalAccepted = 0;
 
-    /** 累计拒绝/超时次数 */
+    /** 累计主动拒绝次数（V1：仅 DECLINE，不含超时；超时单独计 totalTimeout） */
     @Column(name = "total_declined")
     private Integer totalDeclined = 0;
+
+    /** 累计响应超时次数（V1：未在 30s 内响应，非主观拒绝，不计入 acceptanceRate 分母） */
+    @Column(name = "total_timeout")
+    private Integer totalTimeout = 0;
 
     /** 接单率（0.0-1.0），null 表示尚无派单记录 */
     @Column(name = "acceptance_rate")

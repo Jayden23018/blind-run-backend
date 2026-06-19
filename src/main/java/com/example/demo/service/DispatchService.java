@@ -115,6 +115,11 @@ public class DispatchService {
         order.setDispatchRound(1);
         runOrderRepository.save(order);
 
+        // A8-② 首次派单正向反馈：告知盲人已开始呼叫（参考滴滴"正在为您呼叫"节奏，不每志愿者打扰）
+        notificationService.sendNotification(
+                order.getBlindUser().getId(),
+                "DISPATCH_STARTED", TargetRole.BLIND_USER, null);
+
         populateQueue(order, 1);
         dispatchToNext(order);
     }
@@ -220,7 +225,7 @@ public class DispatchService {
 
         Long timedOutVolunteer = order.getDispatchCurrentVolunteerId();
         if (timedOutVolunteer != null) {
-            updateDeclineStats(timedOutVolunteer);
+            updateTimeoutStats(timedOutVolunteer);
             evictProfileCache(timedOutVolunteer);
             log.info("志愿者 {} 对订单 {} 响应超时", timedOutVolunteer, orderId);
         }
@@ -470,6 +475,11 @@ public class DispatchService {
 
     private void updateDeclineStats(Long volunteerId) {
         volunteerProfileRepository.atomicIncrementDeclineStats(volunteerId);
+    }
+
+    /** 超时统计（V1：独立于拒绝，不污染 acceptanceRate） */
+    private void updateTimeoutStats(Long volunteerId) {
+        volunteerProfileRepository.atomicIncrementTimeoutStats(volunteerId);
     }
 
     // ===== 工具方法 =====

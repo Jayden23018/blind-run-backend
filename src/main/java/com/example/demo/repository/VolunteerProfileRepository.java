@@ -58,6 +58,21 @@ public interface VolunteerProfileRepository extends JpaRepository<VolunteerProfi
     void atomicIncrementDeclineStats(@Param("userId") Long userId);
 
     /**
+     * 原子更新超时统计（V1 修复：超时≠主动拒绝，走独立字段，不污染 acceptanceRate）
+     *
+     * 超时只递增 total_dispatched + total_timeout，不动 total_declined/total_accepted，
+     * 因此 acceptance_rate 分子分母都不变——超时对志愿者接单率评分完全中性。
+     */
+    @Modifying
+    @Query(value =
+            "UPDATE volunteer_profile SET " +
+            "  total_dispatched = total_dispatched + 1, " +
+            "  total_timeout    = total_timeout + 1 " +
+            "WHERE user_id = :userId",
+            nativeQuery = true)
+    void atomicIncrementTimeoutStats(@Param("userId") Long userId);
+
+    /**
      * 原子更新评分（C6 修复：native query + ROUND）
      *
      * 公式：newAvg = ROUND((oldAvg * oldTotal + rating) / (oldTotal + 1), 2)
