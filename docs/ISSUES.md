@@ -7,7 +7,7 @@
 > - 新评审发现的问题，按优先级（P0 > P1 > P2）追加到「待处理」对应区块。
 > - 每条标注信息可信度：**【已确证】**（读代码/文档确认）或 **【⚠️ 待核实】**（概括，需进一步核实）。
 
-**最近更新**：2026-06-17（P1 全部清零）
+**最近更新**：2026-06-19（P2 全部清零）
 
 ---
 
@@ -17,7 +17,7 @@
 |--------|--------|--------|
 | P0（影响核心功能/安全） | ✅ 4 / 4 | 0 |
 | P1（重要，应修） | ✅ 5 / 5 | 0 |
-| P2（增强/优化） | 0 | 5 |
+| P2（增强/优化） | ✅ 5 / 5 | 0 |
 
 **评审来源**：2026-06-17 首次全面代码评审。
 
@@ -137,21 +137,23 @@
 - **涉及**：`data.sql`（3 条紧急模板 tts_text）、`NotificationService`（2 处硬编码 tts）。
 - **后续**：文案最终措辞建议与视障用户/无障碍专家 1 轮共创定稿。
 
+### [P2] S6 · Swagger 生产关闭 — `2026-06-19` 【已确证】
+
+- **核实更正**：ISSUES 原标"待处理"，实际 `application-prod.properties:36-37` 已 `springdoc.swagger-ui.enabled=false` + `springdoc.api-docs.enabled=false`——生产 profile 下 Swagger 已关闭。文档滞后，本次更正状态。
+- **涉及**：`application-prod.properties`（无需改动，已就绪）。
+
+### [P2] S9 · 生产 ddl-auto 改 validate — `2026-06-19` 【已确证】
+
+- **问题**：原 `application.properties` `${JPA_DDL_AUTO:update}`，prod profile 未覆盖 → 生产默认 update，表结构漂移风险。
+- **方案**：`application-prod.properties` 加 `spring.jpa.hibernate.ddl-auto=validate`（生产 profile 覆盖）。实体与表结构不匹配时启动失败（暴露问题而非静默改表）。
+- **理由**：生产不应由 Hibernate 自动改表（不可控、可能丢数据/改错）；validate 只校验不修改，安全。新增字段（如 V1 `total_timeout`）生产首次部署需确认列已存在（临时用 update 启动一次，或手动 ALTER）。
+- **涉及**：`application-prod.properties`、`CLAUDE.md`（ddl-auto 说明更正）。
+
 ---
 
 ## 🟡 待处理 — P2（增强/优化）
 
-### S6 · Swagger 生产默认开启 【已确证】
-
-- **问题**：`OpenApiConfig` 配置 Swagger，生产默认暴露 `/swagger-ui`、`/v3/api-docs`。
-- **影响**：生产环境暴露 API 结构，便于攻击者枚举端点。
-- **建议**：生产 profile（`prod`）禁用或加权限校验。
-
-### S9 · 生产 `ddl-auto=update` 【已确证】
-
-- **问题**：Hibernate `ddl-auto=update` 在生产使用。
-- **影响**：表结构漂移、非预期 DDL、生产事故风险。
-- **建议**：生产改 `validate` 或 `none`，引入 Flyway/Liquibase 管理迁移。
+**✅ 全部清零**（S6/S9 已解决，见上）。后续新发现的 P2 项按编号追加于此。
 
 ---
 
