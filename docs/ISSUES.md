@@ -7,7 +7,7 @@
 > - 新评审发现的问题，按优先级（P0 > P1 > P2）追加到「待处理」对应区块。
 > - 每条标注信息可信度：**【已确证】**（读代码/文档确认）或 **【⚠️ 待核实】**（概括，需进一步核实）。
 
-**最近更新**：2026-06-20（新增 E1 紧急服务 SMS 异常未捕获修复）
+**最近更新**：2026-06-20（生产冒烟测试收尾：E1 修复 + T1/T2/T3 测试覆盖缺口记录）
 
 ---
 
@@ -17,7 +17,7 @@
 |--------|--------|--------|
 | P0（影响核心功能/安全） | ✅ 4 / 4 | 0 |
 | P1（重要，应修） | ✅ 8 / 8 | 0 |
-| P2（增强/优化） | ✅ 5 / 5 | 0 |
+| P2（增强/优化） | ✅ 5 / 5 | 3（T1/T2/T3，冒烟测试遗留） |
 
 **评审来源**：2026-06-17 首次全面代码评审。
 
@@ -176,7 +176,29 @@
 
 ## 🟡 待处理 — P2（增强/优化）
 
-**✅ 全部清零**（S6/S9 已解决，见上）。后续新发现的 P2 项按编号追加于此。
+### [P2] T1 · 冒烟测试覆盖缺口 — 未测接口（需补测） — `2026-06-20` 【已确证】
+
+以下接口在 2026-06-19~06-20 生产冒烟测试中未能覆盖，需在下次有活跃订单时补测：
+
+| 接口 | 原因 | 备注 |
+|------|------|------|
+| `GET /api/blind/volunteer-location` | 需 DRIVER_EN_ROUTE/DRIVER_ARRIVED 状态订单 | REST 回退路径，平时走 WebSocket |
+| `POST /api/orders/{id}/call/initiate` | 需活跃订单 + 测试时未覆盖 | 私号 mock（`aliyun.private-number.enabled=false`）应返回 CONNECTED |
+| `GET /api/orders/{id}/call/records` | 需先 call/initiate | 同上 |
+| `PUT /api/orders/{id}/keep-waiting` | 需 PENDING_MATCH 状态（无可用志愿者时） | 续时功能，逻辑简单风险低 |
+| `PUT /api/cs/emergency-events/{id}/notify-contact` | E1 代码已修（commit `a2fab4b`），但未在生产环境验证该具体接口 | 与 `resolve` 同一修复模式，风险低 |
+| `PUT /api/cs/emergency-events/{id}/false-alarm` | 测试流程未覆盖误触路径 | 逻辑简单，仅改状态无 SMS |
+
+### [P2] T2 · API 文档缺口：`PacePreference` 枚举值未列举 — `2026-06-20` 【已确证】
+
+- **问题**：`PUT /api/blind/profile` 的 `defaultPace` 字段接受 `PacePreference` 枚举，但 API 文档未列出合法值。生产冒烟测试发送 `"SLOW"` 导致 400（`SLOW` 不是合法值）。
+- **合法值**：`WALK_RUN` / `EASY` / `MODERATE` / `FAST` / `NO_PREFERENCE`
+- **需更新**：`docs/api/user.md`（blindProfile 请求体说明）、`docs/frontend-guide.md`
+
+### [P2] T3 · API 文档缺口：更新通知模板字段名为 `templateText` — `2026-06-20` 【已确证】
+
+- **问题**：`PUT /api/admin/notification-templates/{id}` 的请求体字段名为 `templateText`（对应 DB 列 `template_text`），但字段名不直观（容易误写成 `body`、`content`、`title`），生产测试曾因此返回 400。
+- **需更新**：`docs/api/admin.md`（明确标注请求体示例包含 `templateText`）、`docs/frontend-guide.md`
 
 ---
 

@@ -4,7 +4,21 @@
 
 ### 缺陷修复 — 紧急服务 SMS 异常（E1）
 
-- **E1 `notifyContact`/`resolveEvent` SMS 未捕获**：两处 SMS 调用加 try-catch，SMS 失败仅记 error 日志，DB 事务正常提交（修复前 SMS 异常触发 `@Transactional` 回滚，接口返回 500 且状态变更丢失）。
+- **E1 `notifyContact`/`resolveEvent` SMS 未捕获**：`notifyContact()` 和 `resolveEvent()` 对 SMS 调用均无 try-catch。阿里云 SMS 失败时异常冒泡触发 `@Transactional` 回滚，接口返回 500 且状态变更（`CONTACT_NOTIFIED` / `RESOLVED`）同时丢失。对两处 SMS 调用各加 try-catch，失败仅记 error 日志，DB 事务正常提交。同一类的 `escalateToEmergencyContacts` 已在 v1.4.0（commit `a88b699`）修复，本次补全两处遗漏。
+
+### 生产接口冒烟测试（2026-06-19 ~ 06-20）
+
+本次对除阿里云上传/人脸相关接口外的全部接口做了生产环境冒烟测试，共覆盖约 50 个端点，均返回 2xx / `success:true`：
+
+| 测试分组 | 覆盖内容 | 结果 |
+|---------|---------|------|
+| 基础信息 | `GET/PUT /api/auth/me`、`/api/blind/profile`、`/api/volunteer/profile`、dispatch-status、registration/status、`GET /api/users/{id}` | ✅ 全通 |
+| 紧急联系人 CRUD | `GET/POST/PUT/DELETE /api/users/{id}/emergency-contacts`、`set-primary` | ✅ 全通 |
+| 订单查询 | `GET /api/orders/mine`（双角色）、status-logs、available、review、reviews | ✅ 全通 |
+| 订单派单 E2E | 创建→PENDING_MATCH→PENDING_ACCEPT→IN_PROGRESS→DRIVER_EN_ROUTE→DRIVER_ARRIVED→COMPLETED（订单 19/22/24） | ✅ 全通 |
+| 位置上报 | `POST /api/blind/location`、`POST /api/volunteer/location`（WebSocket 路径） | ✅ 全通 |
+| 紧急 SOS | 触发→志愿者响应→CS accept→CS resolve（E1 修复后）、独立 SOS（无订单） | ✅ 全通 |
+| CS + Admin | CS 登录/登出、通知模板 GET/PUT、志愿者审核列表、培训课程 CRUD、软删除用户 | ✅ 全通 |
 
 ### 验证
 
