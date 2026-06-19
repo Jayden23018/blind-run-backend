@@ -144,6 +144,13 @@ public class GlobalExceptionHandler {
     }
 
     /** 兜底：其他未捕获异常 → 500 */
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<Map<String, Object>> handleIllegalState(IllegalStateException e) {
+        return ResponseEntity
+                .status(HttpStatus.TOO_MANY_REQUESTS)
+                .body(Map.of("success", false, "code", 429, "message", e.getMessage()));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGenericException(Exception e) {
         org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class)
