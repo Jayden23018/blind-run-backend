@@ -5,9 +5,10 @@ import com.example.demo.entity.RunOrder;
 import com.example.demo.event.OrderCreatedEvent;
 import com.example.demo.repository.RunOrderRepository;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 /**
  * 匹配服务 —— 监听订单创建事件，委托给 DispatchService 执行串行派单
@@ -31,7 +32,7 @@ public class MatchingService {
     /**
      * 监听订单创建事件，启动串行派单流程
      */
-    @EventListener
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     @Async
     public void handleOrderCreated(OrderCreatedEvent event) {
         RunOrder order = runOrderRepository.findByIdWithBlindUser(event.getOrder().getId()).orElse(null);
