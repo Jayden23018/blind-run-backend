@@ -1,5 +1,18 @@
 # 变更日志
 
+## [1.4.1] - 2026-06-19
+
+### 缺陷修复 — 派单竞态条件（D1/D2）
+
+- **D1 MatchingService 事务后触发**：`handleOrderCreated` 从 `@EventListener @Async` 改为 `@TransactionalEventListener(AFTER_COMMIT) @Async`。修复「订单 X 未找到，跳过匹配」——事务提交前异步线程读 DB，订单尚不存在，派单流程静默丢失。
+- **D2 OrderLifecycleService REQUIRES_NEW 传播**：`onDispatchAccepted` 从 `@EventListener @Async @Transactional` 改为 `@TransactionalEventListener(AFTER_COMMIT) @Async @Transactional(propagation=REQUIRES_NEW)`。修复接单后状态仍为 PENDING_MATCH（异步线程在事务提交前执行，读到旧状态），以及直接使用 `AFTER_COMMIT` 加默认 `@Transactional` 导致的**启动崩溃**（Spring 规定 `@TransactionalEventListener` 的 `@Transactional` 必须 `REQUIRES_NEW` 或 `NOT_SUPPORTED`）。
+
+### 验证
+
+生产 E2E 全流程（订单 19）：创建→PENDING_MATCH→PENDING_ACCEPT→IN_PROGRESS→DRIVER_EN_ROUTE→DRIVER_ARRIVED→COMPLETED，全部状态正确流转。
+
+---
+
 ## [1.4.0] - 2026-06-17
 
 ### 缺陷修复 — 安全（S1/S3/S4，代码评审 P0/P1）

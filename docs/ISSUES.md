@@ -7,7 +7,7 @@
 > - 新评审发现的问题，按优先级（P0 > P1 > P2）追加到「待处理」对应区块。
 > - 每条标注信息可信度：**【已确证】**（读代码/文档确认）或 **【⚠️ 待核实】**（概括，需进一步核实）。
 
-**最近更新**：2026-06-19（P2 全部清零）
+**最近更新**：2026-06-19（新增 D1/D2 派单竞态条件修复）
 
 ---
 
@@ -16,7 +16,7 @@
 | 优先级 | 已解决 | 待处理 |
 |--------|--------|--------|
 | P0（影响核心功能/安全） | ✅ 4 / 4 | 0 |
-| P1（重要，应修） | ✅ 5 / 5 | 0 |
+| P1（重要，应修） | ✅ 7 / 7 | 0 |
 | P2（增强/优化） | ✅ 5 / 5 | 0 |
 
 **评审来源**：2026-06-17 首次全面代码评审。
@@ -106,6 +106,21 @@
 - **连带测试改造**：`ConcurrencyTest`（重写为串行派单归属测试）、新增 `DispatchServiceTest`（3 用例覆盖归属校验）、`OrderPermissionTest`/`OrderCancelTest` 因 S3/B2 联动自动适配。
 - **行为变化（前端须知）**：旧 `/accept` 接单从"直接 IN_PROGRESS"变"PENDING_ACCEPT → 异步 IN_PROGRESS"；响应体仍是 `{success:true, orderId}`，兼容。
 - **验证**：`DispatchServiceTest` + `OrderPermissionTest` + `OrderCancelTest` + `ConcurrencyTest`(slow) + 全量测试通过。
+
+### [P1] D1 · MatchingService 事务提交前异步监听导致派单丢失 — `2026-06-19` 【已确证】
+
+- **问题**：`MatchingService.handleOrderCreated` 使用 `@EventListener @Async`，当主线程事务**尚未提交**时 `OrderCreatedEvent` 已发布，异步线程立即执行 `runOrderRepository.findById()`——此时订单在 DB 中还不存在，返回 null，打印"订单 X 未找到，跳过匹配"，**派单流程静默跳过**。
+- **影响**：高并发或慢磁盘情形下订单创建后永远不触发派单，盲人等待无响应。生产 E2E 测试中稳定复现。
+- **方案**：改为 `@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT) @Async`——事件在主事务**提交后**才触发，异步线程读 DB 时订单必然存在。
+- **涉及文件**：`MatchingService.handleOrderCreated`（commit `e77b758`）
+- **验证**：生产 E2E 测试（订单 19）：创建→PENDING_MATCH→PENDING_ACCEPT→IN_PROGRESS 全流程通过。
+
+### [P1] D2 · OrderLifecycleService `@TransactionalEventListener` + `@Transactional` 启动崩溃 — `2026-06-19` 【已确证】
+
+- **问题**：`OrderLifecycleService.onDispatchAccepted` 使用 `@EventListener @Async @Transactional`——同 D1 根因（事务前触发），接单时查到的订单状态仍是 PENDING_MATCH 而非 PENDING_ACCEPT，报"期望 PENDING_ACCEPT"。修复 D1 思路直接改 `@TransactionalEventListener(AFTER_COMMIT) @Async @Transactional` 触发 **Spring 启动崩溃**："must not be annotated with @Transactional unless when declared as REQUIRES_NEW or NOT_SUPPORTED"（Spring 限制：`@TransactionalEventListener` 默认在父事务已提交后执行，默认传播 `REQUIRED` 会加入已不存在的事务）。
+- **方案**：加 `@Transactional(propagation = Propagation.REQUIRES_NEW)`——在新事务中执行，绕过 Spring 限制，同时保证 `onDispatchAccepted` 的 DB 写操作具有事务保护。
+- **涉及文件**：`OrderLifecycleService.onDispatchAccepted`（commit `d0cf543`）
+- **验证**：服务正常启动（无崩溃）+ 生产 E2E 测试接单后状态 IN_PROGRESS 正确。
 
 ### [P1] P1 · 多实例 WebSocket 通知（更正：已解决） — `2026-06-17` 【已确证】
 
