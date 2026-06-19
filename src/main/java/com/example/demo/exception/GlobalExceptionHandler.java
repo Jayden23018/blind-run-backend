@@ -143,12 +143,14 @@ public class GlobalExceptionHandler {
                 .body(body);
     }
 
-    /** 兜底：其他未捕获异常 → 500 */
+    /** 非法状态 → 500（不暴露内部错误信息） */
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<Map<String, Object>> handleIllegalState(IllegalStateException e) {
+        org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class)
+                .error("IllegalStateException: {}", e.getMessage(), e);
         return ResponseEntity
-                .status(HttpStatus.TOO_MANY_REQUESTS)
-                .body(Map.of("success", false, "code", 429, "message", e.getMessage()));
+                .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of("success", false, "code", 500, "message", "服务器内部错误，请稍后重试"));
     }
 
     @ExceptionHandler(Exception.class)

@@ -2,6 +2,7 @@ package com.example.demo.service;
 
 import com.example.demo.dto.EmergencyTriggerRequest;
 import com.example.demo.entity.*;
+import com.example.demo.exception.RateLimitException;
 import com.example.demo.repository.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -170,7 +171,7 @@ class EmergencyServiceTest {
         EmergencyTriggerRequest req = new EmergencyTriggerRequest();
         req.setGpsLat(new BigDecimal("31.23"));
 
-        assertThrows(IllegalStateException.class, () -> emergencyService.triggerEmergency(100L, req));
+        assertThrows(RateLimitException.class, () -> emergencyService.triggerEmergency(100L, req));
         verify(runOrderRepository, never()).findById(any());
         verify(eventRepository, never()).save(any());
         verify(geocodingService, never()).reverseGeocode(any(), any());

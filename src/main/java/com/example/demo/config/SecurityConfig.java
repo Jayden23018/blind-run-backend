@@ -104,6 +104,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/orders/*/cancel").hasAnyRole("BLIND", "VOLUNTEER")  // 取消：盲人取消订单 / 志愿者取消转 REMATCHING（cancelOrder 双角色分支）
                         .requestMatchers(HttpMethod.PUT, "/api/orders/*/keep-waiting").hasRole("BLIND")
                         // 订单：响应/完成/出发/到达/可接单列表 → VOLUNTEER（/accept、/reject 已下线，前端用 /respond）
+                        .requestMatchers(HttpMethod.POST, "/api/orders/*/call/initiate").hasAnyRole("BLIND", "VOLUNTEER")
                         .requestMatchers(HttpMethod.POST, "/api/orders/*/respond").hasRole("VOLUNTEER")
                         .requestMatchers(HttpMethod.POST, "/api/orders/*/finish").hasRole("VOLUNTEER")
                         .requestMatchers(HttpMethod.POST, "/api/orders/*/en-route").hasRole("VOLUNTEER")

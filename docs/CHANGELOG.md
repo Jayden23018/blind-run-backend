@@ -1,5 +1,40 @@
 # 变更日志
 
+## [1.4.3] - 2026-06-20
+
+### 缺陷修复 — 安全 / 异常处理（B1/C1）
+
+- **B1 GlobalExceptionHandler `handleIllegalState` 状态码错误**：原 handler 把所有 `IllegalStateException` 映射到 HTTP 429 并直接返回 `e.getMessage()`，导致志愿者状态错误（本应 409）、联系人缺失（本应 400）等均返回 429，且内部业务文本泄露给前端。修复方案：`EmergencyService.triggerEmergency` 冷却检测改用 `RateLimitException(cooldownSeconds)` 替代 `IllegalStateException`（享有已有的 429 + `Retry-After` handler）；`handleIllegalState` 改为返回 HTTP 500 + 通用消息"服务器内部错误，请稍后重试"（不暴露内部文本）。
+
+- **C1 SecurityConfig 缺少 `POST /api/orders/*/call/initiate` 显式授权**：该端点落入 `anyRequest().authenticated()`，意味着 CS 客服账号也可调用。加 `requestMatchers(HttpMethod.POST, "/api/orders/*/call/initiate").hasAnyRole("BLIND", "VOLUNTEER")`（与 S3 教训一致，必须用 HttpMethod 重载）。
+
+### 补充配置文档（C2）
+
+- **application.properties** 补全 `app.match.timeout-seconds=300`、`app.rematch.timeout-seconds=300` 两个配置键的显式文档，便于运维调整匹配和重派超时阈值。
+
+### T1 接口补测完成（2026-06-20）
+
+以下 6 个接口已在生产服务器完成测试（通过 `sms.test-phones` 白名单，代码 000000，无需真实短信）：
+
+| 接口 | 测试结果 |
+|------|---------|
+| `PUT /api/orders/{id}/keep-waiting` | ✅ 200 |
+| `POST /api/orders/{id}/call/initiate` | ✅ 200（mock 返回 CONNECTED + 虚拟号码） |
+| `GET /api/orders/{id}/call/records` | ✅ 200 |
+| `GET /api/blind/volunteer-location` | ✅ 200（DRIVER_EN_ROUTE 状态返回 lat/lng） |
+| `PUT /api/cs/emergency-events/{id}/notify-contact` | ✅ 200（E1 修复后验证） |
+| `PUT /api/cs/emergency-events/{id}/false-alarm` | ✅ 200 |
+
+至此，除阿里云上传/人脸认证外的所有 REST 接口均已在生产环境冒烟测试通过。
+
+### ⚠️ 已知问题（本次新发现，待修复）
+
+- **SMS-A3 EMERGENCY_ALERT 模板参数格式被拒**：`location` 变量（坐标降级格式）和 `time` 变量（ISO 8601 含纳秒）均不符合阿里云模板变量规范（`isv.TEMPLATE_PARAMS_ILLEGAL`），所有紧急短信通知实际发送失败。E1 的 try-catch 保障了接口返回 200，但联系人未收到短信。需修改阿里云 SMS 模板配置（将 location/time 变量类型改为"自定义"）。见 `docs/ISSUES.md` SMS-A3 条目。
+
+⚠️ **注意**：本版 v1.4.3 代码修复已本地构建并通过全量测试（143 个），但因部署工具限制 **新 JAR 尚未上传到生产服务器**（服务器仍运行 v1.4.2）。B1/C1 修复需手动 SCP 后重启服务生效：`scp build/libs/demo-0.0.1-SNAPSHOT.jar root@47.114.113.171:/opt/blindrun/ && ssh root@47.114.113.171 "systemctl restart blindrun"`。
+
+---
+
 ## [1.4.2] - 2026-06-20
 
 ### 缺陷修复 — 紧急服务 SMS 异常（E1）

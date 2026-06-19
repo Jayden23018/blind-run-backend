@@ -3,6 +3,7 @@ package com.example.demo.service;
 import com.example.demo.dto.EmergencyTriggerRequest;
 import com.example.demo.entity.*;
 import com.example.demo.exception.OrderPermissionException;
+import com.example.demo.exception.RateLimitException;
 import com.example.demo.repository.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -76,7 +77,7 @@ public class EmergencyService {
         Boolean acquired = redisTemplate.opsForValue()
                 .setIfAbsent(cooldownKey, "1", cooldownSeconds, TimeUnit.SECONDS);
         if (!Boolean.TRUE.equals(acquired)) {
-            throw new IllegalStateException("紧急事件触发过于频繁，请稍后再试");
+            throw new RateLimitException((int) cooldownSeconds);
         }
 
         // 2. 校验订单归属（orderId 可选：进行中订单触发时校验参与者；独立 SOS 不传 orderId）

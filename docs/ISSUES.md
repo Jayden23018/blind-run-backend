@@ -7,7 +7,7 @@
 > - 新评审发现的问题，按优先级（P0 > P1 > P2）追加到「待处理」对应区块。
 > - 每条标注信息可信度：**【已确证】**（读代码/文档确认）或 **【⚠️ 待核实】**（概括，需进一步核实）。
 
-**最近更新**：2026-06-20（生产冒烟测试收尾：E1 修复 + T1/T2/T3 测试覆盖缺口记录）
+**最近更新**：2026-06-20（B1/C1/C2 修复 + T1 所有接口补测完成 + 新发现 SMS 模板格式 bug）
 
 ---
 
@@ -16,8 +16,8 @@
 | 优先级 | 已解决 | 待处理 |
 |--------|--------|--------|
 | P0（影响核心功能/安全） | ✅ 4 / 4 | 0 |
-| P1（重要，应修） | ✅ 8 / 8 | 0 |
-| P2（增强/优化） | ✅ 5 / 5 | 3（T1/T2/T3，冒烟测试遗留） |
+| P1（重要，应修） | ✅ 10 / 10 | 1（SMS-A3：短信模板参数格式） |
+| P2（增强/优化） | ✅ 7 / 7 | 2（T2/T3，文档缺口） |
 
 **评审来源**：2026-06-17 首次全面代码评审。
 
@@ -130,11 +130,50 @@
 - **涉及文件**：`EmergencyService.notifyContact`（`sendEmergencyAlertSms` 调用处）、`EmergencyService.resolveEvent`（`sendEmergencyResolvedSms` 调用处）
 - **验证**：生产测试 `PUT /api/cs/emergency-events/7/resolve` → HTTP 200 `{success:true}`（修复前 500）。
 
+### [P1] B1 · GlobalExceptionHandler 把所有 `IllegalStateException` 误映射到 429 — `2026-06-20` 【已确证】
+
+- **问题**：commit `cd6d8b7` 修"紧急冷却返回 429"时把 `handleIllegalState` 整个映射到 `HttpStatus.TOO_MANY_REQUESTS`，同时直接把 `e.getMessage()` 返回给客户端。8+ 处 `IllegalStateException` 均受影响：志愿者响应状态（本应 409）、缺失联系人（本应 400）、订单状态不支持（本应 409）等，全部返回 429 并泄露内部错误文本。
+- **影响**：客户端收到错误的 HTTP 状态码；内部业务逻辑文本（如"当前订单状态不允许志愿者响应"）直接暴露给前端，信息泄露。
+- **方案（两步修复）**：
+  1. `EmergencyService.triggerEmergency` 冷却检测改用 `RateLimitException(cooldownSeconds)` 替代 `IllegalStateException`（`RateLimitException` 已有正确 429 handler + `Retry-After` header）。
+  2. `GlobalExceptionHandler.handleIllegalState` 改为返回 HTTP 500 + 通用消息"服务器内部错误，请稍后重试"（不再暴露 `e.getMessage()`）；同时补 `log.error` 记录实际异常信息供排查。
+- **涉及文件**：`EmergencyService`（line 79）、`GlobalExceptionHandler`（`handleIllegalState`）、`EmergencyServiceTest`（期望异常类型改 `RateLimitException`）
+- **验证**：紧急冷却 → HTTP 429 + `retryAfterSeconds`（正确）；其余 `IllegalStateException` → HTTP 500 + 通用消息（不再 429）；全量测试通过。
+
+### [P1] C1 · SecurityConfig 缺少 `POST /api/orders/*/call/initiate` 显式授权规则 — `2026-06-20` 【已确证】
+
+- **问题**：`POST /api/orders/*/call/initiate` 未在 SecurityConfig 中显式授权，落入 `anyRequest().authenticated()`，意味着包括 CS 客服在内的任何已认证用户均可调用。
+- **影响**：CS 用户（`CS_CS`/`CS_ADMIN`）可发起通话，违背"仅订单参与方（盲人/志愿者）才能发起"的业务约束。CallController 本身有参与者校验（403），但安全防御应在 Security 层最早期拦截。
+- **方案**：在 SecurityConfig 的 `call/initiate` 前加 `.requestMatchers(HttpMethod.POST, "/api/orders/*/call/initiate").hasAnyRole("BLIND", "VOLUNTEER")`（与 S3 历史教训一致，必须用 `HttpMethod` 重载）。
+- **涉及文件**：`SecurityConfig`
+- **验证**：编译通过；全量测试通过。
+
 ### [P1] P1 · 多实例 WebSocket 通知（更正：已解决） — `2026-06-17` 【已确证】
 
 - **原描述（不准确）**：`UnifiedSessionRegistry` 是本地内存，多实例通知丢失。
 - **核实结论**：代码库**已实现完整的 Redis Pub/Sub 跨实例转发**——`UnifiedSessionRegistry.sendToUser` 本机无 session 时转发 Redis、`WebSocketMessageBroker` 的 `ws:messages` 频道桥接 USER/CS_BROADCAST、`RedisWebSocketConfig` 全实例订阅。生产当前单实例未承压，但跨实例机制已预先就绪。
 - **处理**：无需改动代码，仅更正背景描述并标记已解决。
+
+### [P2] C2 · `application.properties` 缺少订单匹配超时配置文档 — `2026-06-20` 【已确证】
+
+- **问题**：`app.match.timeout-seconds`（`OrderCreationService:35`）和 `app.rematch.timeout-seconds`（`OrderLifecycleService:45-48`）在代码中使用默认值 300s，但 `application.properties` 未显式列出这两个 key，运维无从知晓可以调整。
+- **方案**：在 `application.properties` 的"串行派单配置"区块下补充说明，明确两个超时 key 及其默认值。
+- **涉及文件**：`application.properties`（dispatch 配置区块）
+
+### [P2] T1 · 冒烟测试覆盖缺口 — 全部补测完成 — `2026-06-20` 【已确证】
+
+以下 6 个接口已于 2026-06-20 在生产服务器完成补测，全部返回 2xx：
+
+| 接口 | 状态 | 返回示例 |
+|------|------|---------|
+| `PUT /api/orders/{id}/keep-waiting` | ✅ 200 | `{success:true}` |
+| `POST /api/orders/{id}/call/initiate` | ✅ 200 | `{callRecordId:2, virtualNumber:"170...", status:"CONNECTED"}` |
+| `GET /api/orders/{id}/call/records` | ✅ 200 | `[{...}]`（1条记录） |
+| `GET /api/blind/volunteer-location` | ✅ 200 | `{lat:22.5431, lng:114.0579, orderId:29}` |
+| `PUT /api/cs/emergency-events/{id}/notify-contact` | ✅ 200 | `{success:true}` |
+| `PUT /api/cs/emergency-events/{id}/false-alarm` | ✅ 200 | `{success:true}` |
+
+**测试前提**：`sms.test-phones=15602964366,13823594196`（000000 固定码）已在生产服务配置；志愿者 userId=10 通过数据库直接设置 `verified=1, registration_step=STEP_4_COMPLETED`。
 
 ### [P2] V1 · 超时统计与主动拒绝分开 — `2026-06-19` 【已确证】
 
@@ -174,20 +213,24 @@
 
 ---
 
+## 🟡 待处理 — P1（重要，应修）
+
+### [P1] SMS-A3 · EMERGENCY_ALERT 短信模板参数格式被阿里云拒绝 — `2026-06-20` 【已确证】
+
+- **问题**：`EmergencyService.sendEmergencyAlertSms` 发送紧急短信时，阿里云 EMERGENCY_ALERT 模板拒绝以下两个变量：
+  - `location`：发送的是"纬度22.54310 经度114.05790"（A2 的坐标降级格式），但阿里云模板变量类型为 `[地址]`，拒绝纯坐标格式（错误码 `isv.TEMPLATE_PARAMS_ILLEGAL`）。
+  - `time`：发送的是 `LocalDateTime.toString()`（含纳秒的 ISO 8601 字符串，如 `2026-06-20T01:49:45.611396364`），阿里云模板变量类型为 `[时间]`，要求更短的格式（如 `HH:mm`）。
+- **影响**：所有紧急短信通知到联系人的发送均失败（含 `notifyContact`、`escalateToEmergencyContacts`）。E1 已修 try-catch，SMS 失败不影响业务流程返回 200，但联系人实际收不到短信。
+- **日志**：`阿里云短信发送失败: Code=isv.TEMPLATE_PARAMS_ILLEGAL, Message=模版中的变量location(...) 不符合[地址]的变量规范!模版中的变量time(...) 不符合[时间]的变量规范!`
+- **方案（两选一）**：
+  - 方案 A（推荐）：修改阿里云短信模板，把 `location` 的变量类型改为"自定义"（不限制格式），`time` 改为"自定义"或修改模板直接用具体格式（如 `${date} ${hour}时${minute}分`）；
+  - 方案 B：修改代码，`time` 改为格式化字符串（如 `HH:mm`），`location` 需改阿里云模板类型（代码侧无法解决格式约束）。
+- **阻塞点**：需阿里云控制台修改短信模板配置（非纯代码可修）。
+- **涉及文件**：`EmergencyService.formatLocation`（或调用方）、阿里云 SMS 模板配置
+
+---
+
 ## 🟡 待处理 — P2（增强/优化）
-
-### [P2] T1 · 冒烟测试覆盖缺口 — 未测接口（需补测） — `2026-06-20` 【已确证】
-
-以下接口在 2026-06-19~06-20 生产冒烟测试中未能覆盖，需在下次有活跃订单时补测：
-
-| 接口 | 原因 | 备注 |
-|------|------|------|
-| `GET /api/blind/volunteer-location` | 需 DRIVER_EN_ROUTE/DRIVER_ARRIVED 状态订单 | REST 回退路径，平时走 WebSocket |
-| `POST /api/orders/{id}/call/initiate` | 需活跃订单 + 测试时未覆盖 | 私号 mock（`aliyun.private-number.enabled=false`）应返回 CONNECTED |
-| `GET /api/orders/{id}/call/records` | 需先 call/initiate | 同上 |
-| `PUT /api/orders/{id}/keep-waiting` | 需 PENDING_MATCH 状态（无可用志愿者时） | 续时功能，逻辑简单风险低 |
-| `PUT /api/cs/emergency-events/{id}/notify-contact` | E1 代码已修（commit `a2fab4b`），但未在生产环境验证该具体接口 | 与 `resolve` 同一修复模式，风险低 |
-| `PUT /api/cs/emergency-events/{id}/false-alarm` | 测试流程未覆盖误触路径 | 逻辑简单，仅改状态无 SMS |
 
 ### [P2] T2 · API 文档缺口：`PacePreference` 枚举值未列举 — `2026-06-20` 【已确证】
 
