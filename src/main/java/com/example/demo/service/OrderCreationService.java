@@ -6,6 +6,7 @@ import com.example.demo.entity.*;
 import com.example.demo.event.OrderCreatedEvent;
 import com.example.demo.exception.DuplicateOrderException;
 import com.example.demo.exception.OrderPermissionException;
+import com.example.demo.exception.OrderTooSoonException;
 import com.example.demo.repository.BlindProfileRepository;
 import com.example.demo.repository.RunOrderRepository;
 import com.example.demo.repository.UserRepository;
@@ -35,6 +36,10 @@ public class OrderCreationService {
     @Value("${app.match.timeout-seconds:300}")
     private long matchTimeoutSeconds;
 
+    /** 预约开始时间距当前时间的最小提前量（分钟） */
+    @Value("${app.order.min-lead-time-minutes:30}")
+    private int minLeadTimeMinutes;
+
     public OrderCreationService(RunOrderRepository runOrderRepository,
                                 UserRepository userRepository,
                                 ApplicationEventPublisher eventPublisher,
@@ -56,6 +61,12 @@ public class OrderCreationService {
         }
         if (!request.getPlannedStartTime().isAfter(LocalDateTime.now())) {
             throw new IllegalArgumentException("计划开始时间不能早于当前时间");
+        }
+        // 提前量校验：预约开始时间必须距当前时间至少 minLeadTimeMinutes 分钟，
+        // 否则没有足够时间完成派单流程（5→10→20km 三轮扩圈，每轮含志愿者响应超时）。
+        if (request.getPlannedStartTime().isBefore(LocalDateTime.now().plusMinutes(minLeadTimeMinutes))) {
+            throw new OrderTooSoonException(
+                    "预约开始时间需距当前时间至少 " + minLeadTimeMinutes + " 分钟");
         }
 
         boolean hasActiveOrder = runOrderRepository.existsByBlindUserIdAndStatusIn(

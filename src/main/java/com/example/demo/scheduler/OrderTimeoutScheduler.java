@@ -16,7 +16,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 订单超时定时任务 —— 每 60 秒检查一次，将超过计划结束时间的 IN_PROGRESS 订单自动完成
+ * 订单超时定时任务 —— 每 60 秒检查一次，将超过计划结束时间的"进行中"订单自动完成。
+ * "进行中"含 IN_PROGRESS / DRIVER_EN_ROUTE / DRIVER_ARRIVED 三种状态（见 RunOrderRepository.findTimedOutOrders）。
  */
 @Slf4j
 @Component

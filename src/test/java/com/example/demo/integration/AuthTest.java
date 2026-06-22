@@ -108,7 +108,11 @@ class AuthTest extends BaseIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         JsonNode json = testHelper.extractJson(response.getBody());
-        assertThat(json.get("error").asText()).contains("验证码错误");
+        // 统一错误结构：{success:false, code:400, errorCode:"INVALID_VERIFICATION_CODE", message:"验证码错误或已过期"}
+        assertThat(json.get("errorCode").asText()).isEqualTo("INVALID_VERIFICATION_CODE");
+        assertThat(json.get("message").asText()).contains("验证码错误");
+        assertThat(json.get("success").asBoolean()).isFalse();
+        assertThat(json.get("code").asInt()).isEqualTo(400);
 
         System.out.println("✅ TC-AUTH-05 passed — 验证码错误");
     }

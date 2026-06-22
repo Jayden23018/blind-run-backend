@@ -180,4 +180,53 @@ class OrderValidationTest extends BaseIntegrationTest {
 
         System.out.println("✅ TC-VALID-07 passed — PENDING_MATCH状态触发重复下单检查返回409");
     }
+
+    // ==================== TC-VALID-08（预约提前量）====================
+
+    /** TC-VALID-08：开始时间距当前不足 30 分钟 → 422 + APPOINTMENT_TOO_SOON */
+    @Test
+    @DisplayName("TC-VALID-08: 预约开始时间距当前不足30分钟返回422")
+    void tcValid08_appointmentTooSoon_returns422() {
+        String blindToken = testHelper.registerAndLoginWithRole("13800080081", "BLIND");
+
+        java.time.LocalDateTime start = java.time.LocalDateTime.now().plusMinutes(5);
+        java.time.LocalDateTime end = start.plusMinutes(30);
+        String body = String.format(
+                "{\"startLatitude\":39.9,\"startLongitude\":116.4,\"startAddress\":\"test\","
+                        + "\"plannedStartTime\":\"%s\",\"plannedEndTime\":\"%s\"}",
+                start, end);
+
+        ResponseEntity<String> response = testHelper.createOrderRaw(blindToken, body);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        JsonNode json = testHelper.extractJson(response.getBody());
+        assertThat(json.get("success").asBoolean()).isFalse();
+        assertThat(json.get("code").asInt()).isEqualTo(422);
+        assertThat(json.get("errorCode").asText()).isEqualTo("APPOINTMENT_TOO_SOON");
+        assertThat(json.get("message").asText()).contains("至少 30 分钟");
+
+        System.out.println("✅ TC-VALID-08 passed — 预约提前量不足返回422+APPOINTMENT_TOO_SOON");
+    }
+
+    /** TC-VALID-09：开始时间距当前 >= 30 分钟 → 正常创建（非 422） */
+    @Test
+    @DisplayName("TC-VALID-09: 预约开始时间距当前>=30分钟可正常创建")
+    void tcValid09_appointmentFarEnough_not422() {
+        String blindToken = testHelper.registerAndLoginWithRole("13800080091", "BLIND");
+
+        // now + 35 分钟，超过阈值
+        java.time.LocalDateTime start = java.time.LocalDateTime.now().plusMinutes(35);
+        java.time.LocalDateTime end = start.plusMinutes(30);
+        String body = String.format(
+                "{\"startLatitude\":39.9,\"startLongitude\":116.4,\"startAddress\":\"test\","
+                        + "\"plannedStartTime\":\"%s\",\"plannedEndTime\":\"%s\"}",
+                start, end);
+
+        ResponseEntity<String> response = testHelper.createOrderRaw(blindToken, body);
+
+        // 不应被提前量校验拦截（可能是 201 成功，或其它业务拒绝如重复订单，但绝不是 422）
+        assertThat(response.getStatusCode()).isNotEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+
+        System.out.println("✅ TC-VALID-09 passed — 预约时间充足未触发APPOINTMENT_TOO_SOON");
+    }
 }

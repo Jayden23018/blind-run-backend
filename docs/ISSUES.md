@@ -7,7 +7,7 @@
 > - 新评审发现的问题，按优先级（P0 > P1 > P2）追加到「待处理」对应区块。
 > - 每条标注信息可信度：**【已确证】**（读代码/文档确认）或 **【⚠️ 待核实】**（概括，需进一步核实）。
 
-**最近更新**：2026-06-20（B1/C1/C2 修复 + T1 所有接口补测完成 + 新发现 SMS 模板格式 bug）
+**最近更新**：2026-06-22（FE-1~6 前端联调反馈 6 项全部修复，见 [CHANGELOG 1.5.0](./CHANGELOG.md)）
 
 ---
 
@@ -16,8 +16,8 @@
 | 优先级 | 已解决 | 待处理 |
 |--------|--------|--------|
 | P0（影响核心功能/安全） | ✅ 4 / 4 | 0 |
-| P1（重要，应修） | ✅ 10 / 10 | 1（SMS-A3：短信模板参数格式） |
-| P2（增强/优化） | ✅ 7 / 7 | 2（T2/T3，文档缺口） |
+| P1（重要，应修） | ✅ 14 / 14 | 1（SMS-A3：短信模板参数格式） |
+| P2（增强/优化） | ✅ 8 / 8 | 2（T2/T3，文档缺口） |
 
 **评审来源**：2026-06-17 首次全面代码评审。
 
@@ -210,6 +210,49 @@
 - **方案**：`application-prod.properties` 加 `spring.jpa.hibernate.ddl-auto=validate`（生产 profile 覆盖）。实体与表结构不匹配时启动失败（暴露问题而非静默改表）。
 - **理由**：生产不应由 Hibernate 自动改表（不可控、可能丢数据/改错）；validate 只校验不修改，安全。新增字段（如 V1 `total_timeout`）生产首次部署需确认列已存在（临时用 update 启动一次，或手动 ALTER）。
 - **涉及**：`application-prod.properties`、`CLAUDE.md`（ddl-auto 说明更正）。
+
+---
+
+## ✅ 已解决 — 前端联调反馈（FE 系列，2026-06-22）
+
+> 来源：前端联调阶段反馈的 6 项后端问题。详见 [CHANGELOG 1.5.0](./CHANGELOG.md#150---2026-06-22)。
+
+### [P1] FE-1 · 志愿者可服务状态（isAvailable）查询未生效 — `2026-06-22` 【已确证】
+
+- **问题**：前端反馈开启可服务状态后再次查询未生效。根因：后端无 `isAvailable` 字段，真正的接单开关 `wantsDispatch` 只存在 Redis（TTL 30s），不落库、`GET /profile` 不返回；Redis key 过期时 `updateDispatchStatus` 静默 return 丢失开关。
+- **方案**：`wantsDispatch` 落库到 `volunteer_profile` 表（默认 true）；`GET/PUT /profile` 读写；派单候选筛选 + 接单校验以 DB 为准；`updateDispatchStatus` 即使 Redis key 不存在也落库。
+- **涉及**：`VolunteerProfile`, `VolunteerProfileResponse`, `VolunteerProfileUpdateRequest`, `VolunteerService`, `VolunteerLocationService`, `DispatchService`
+- **⚠️ 迁移**：生产需 `ALTER TABLE volunteer_profile ADD COLUMN wants_dispatch BOOLEAN NOT NULL DEFAULT TRUE;`
+
+### [P1] FE-2 · 接单失败缺统一错误码 — `2026-06-22` 【已确证】
+
+- **问题**：前端反馈接单失败返回 500（实为 403/409/400，无 500），但 `OrderStatusException` 无 `errorCode`，前端只能靠 message 文本区分"已被他人接单"。
+- **方案**：新建 `ErrorCode` 枚举集中管理码；`OrderStatusException` 加 `errorCode`；接单各分支返回 `ORDER_ALREADY_ACCEPTED`/`ORDER_DISPATCH_MISMATCH`/`ORDER_CONCURRENT_CONFLICT`；接单新增 `VOLUNTEER_NOT_AVAILABLE` 校验（关闭可服务状态时拒接）。
+- **涉及**：`ErrorCode`, `OrderStatusException`, `GlobalExceptionHandler`, `DispatchService`
+
+### [P1] FE-3 · 不足 30 分钟预约仍创建成功 — `2026-06-22` 【已确证】
+
+- **问题**：`OrderCreationService` 只校验 `plannedStartTime > now()`，差 1 秒也能下单。
+- **方案**：新建 `OrderTooSoonException` → HTTP 422 + `APPOINTMENT_TOO_SOON`；阈值 `app.order.min-lead-time-minutes=30`（可配）。
+- **涉及**：`OrderTooSoonException`, `OrderCreationService`, `GlobalExceptionHandler`, `application.properties`
+
+### [P1] FE-4 · 验证码错误返回 `{"error":...}` — `2026-06-22` 【已确证】
+
+- **问题**：`handleAuthException` 返回 `Map.of("error", msg)`，与统一结构不一致。
+- **方案**：`AuthException` 加 `errorCode`；统一返回 `{success,code,errorCode,message}`；新增 `INVALID_VERIFICATION_CODE`/`PHONE_FORMAT_INVALID`/`USER_NOT_FOUND`。
+- **涉及**：`AuthException`, `AuthService`, `GlobalExceptionHandler`
+
+### [P2] FE-5 · 本人读紧急联系人电话被掩码 — `2026-06-22` 【已确证】
+
+- **问题**：`toResponse` 对所有响应无差别掩码；且"未传 phone 不更新"语义不成立（`@NotBlank` 400 + 无 null 守卫）。
+- **方案**：本人读取返回明文（接口已限定仅 BLIND 本人可访问）；`updateContact` 改 PATCH 语义；放宽 `@NotBlank` 由 service 手动校验新增必填。
+- **涉及**：`EmergencyContactService`, `EmergencyContactRequest`
+
+### [P1] FE-6 · `DRIVER_ARRIVED → IN_PROGRESS` 无触发方 — `2026-06-22` 【已确证】
+
+- **问题**：状态机无此边、无 endpoint/scheduler 触发，是设计缺口；附带 bug：卡在 `DRIVER_ARRIVED` 的超时订单永不自动完成。
+- **方案**：明确"到达即开始"——`DRIVER_ARRIVED` 视为服务进行中可直接 `/finish`；修复 `findTimedOutOrders` 让 `IN_PROGRESS`/`DRIVER_EN_ROUTE`/`DRIVER_ARRIVED` 超时订单都能自动完成。
+- **涉及**：`OrderStatus`（注释）, `RunOrderRepository`, `OrderTimeoutScheduler`
 
 ---
 

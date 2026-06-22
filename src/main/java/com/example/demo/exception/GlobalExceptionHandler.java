@@ -14,19 +14,30 @@ import java.util.stream.Collectors;
 /**
  * 全局异常处理器 —— 统一管理所有接口的错误返回格式
  *
- * 【两种错误格式】
- * - 旧接口（登录/用户管理）：{ "error": "错误信息" }
- * - 新接口（订单/志愿者）：{ "success": false, "code": 409, "message": "错误信息" }
+ * 【统一错误格式】
+ *   { "success": false, "code": <http状态码>, "errorCode": "<业务码>", "message": "<提示信息>" }
+ * 其中 errorCode 为可空字段：需要前端程序化区分的场景（接单失败、验证码错误等）才填，
+ * 通用异常可不填。新接口一律走这套结构，旧 { "error": "..." } 仅 ResourceNotFoundException 残留。
+ *
+ * 【错误码集中管理】
+ * 见 {@link ErrorCode}，新增码请加到枚举里，避免散落字符串字面量。
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    /** 认证异常 → 400 */
+    /**
+     * 认证异常 → 400（统一结构，含 errorCode）
+     * 常见 errorCode：INVALID_VERIFICATION_CODE / PHONE_FORMAT_INVALID / USER_NOT_FOUND
+     */
     @ExceptionHandler(AuthException.class)
-    public ResponseEntity<Map<String, String>> handleAuthException(AuthException e) {
+    public ResponseEntity<Map<String, Object>> handleAuthException(AuthException e) {
+        String errorCode = e.getErrorCode() != null
+                ? e.getErrorCode()
+                : ErrorCode.PHONE_FORMAT_INVALID.code();
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
-                .body(Map.of("error", e.getMessage()));
+                .body(Map.of("success", false, "code", 400,
+                        "errorCode", errorCode, "message", e.getMessage()));
     }
 
     /** 资源未找到 → 404（旧格式） */
@@ -53,12 +64,22 @@ public class GlobalExceptionHandler {
                 .body(Map.of("success", false, "code", 409, "message", e.getMessage()));
     }
 
-    /** 订单状态流转异常 → 409 */
+    /** 预约提前量不足 → 422（含 errorCode = APPOINTMENT_TOO_SOON） */
+    @ExceptionHandler(OrderTooSoonException.class)
+    public ResponseEntity<Map<String, Object>> handleOrderTooSoon(OrderTooSoonException e) {
+        return ResponseEntity
+                .status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(Map.of("success", false, "code", 422,
+                        "errorCode", e.getErrorCode(), "message", e.getMessage()));
+    }
+
+    /** 订单状态流转异常 → 409（统一结构，含 errorCode） */
     @ExceptionHandler(OrderStatusException.class)
     public ResponseEntity<Map<String, Object>> handleOrderStatus(OrderStatusException e) {
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
-                .body(Map.of("success", false, "code", 409, "message", e.getMessage()));
+                .body(Map.of("success", false, "code", 409,
+                        "errorCode", e.getErrorCode(), "message", e.getMessage()));
     }
 
     /** 角色已设定异常 → 409 */

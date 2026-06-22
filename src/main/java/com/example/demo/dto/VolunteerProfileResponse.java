@@ -17,4 +17,6 @@ public class VolunteerProfileResponse {
     private List<VolunteerAvailableTimeSlot> availableTimeSlots;
     private Boolean acceptsGuideDog;
     private PacePreference paceRange;
+    /** 是否开启接单（可服务状态）。前端用于展示开关状态 */
+    private Boolean wantsDispatch;
 }

@@ -1,5 +1,53 @@
 # 变更日志
 
+## [1.5.0] - 2026-06-22
+
+### 前端联调反馈修复（6 项）
+
+本次响应前端联调反馈，修复 6 项后端问题。⚠️ **含 API 契约变更**，前端需配合升级。
+
+#### ⚠️ 破坏性变更（前端必读）
+
+1. **统一错误响应结构**：`AuthException`（验证码错误等）返回体从旧的 `{"error": "..."}` 改为统一结构
+   ```json
+   { "success": false, "code": 400, "errorCode": "INVALID_VERIFICATION_CODE", "message": "验证码错误或已过期" }
+   ```
+   `OrderStatusException`（接单失败等）响应体新增 `errorCode` 字段。错误码集中在 `ErrorCode` 枚举管理。
+
+2. **志愿者可服务状态字段** `wantsDispatch`：
+   - `GET /api/volunteer/profile` 响应新增 `wantsDispatch` 字段（boolean）
+   - `PUT /api/volunteer/profile` 支持传 `wantsDispatch` 切换可服务状态（PATCH 语义，未传保留原值）
+   - 关闭可服务状态（false）时，志愿者可浏览订单但**接单会被拒绝**（403 + `errorCode: VOLUNTEER_NOT_AVAILABLE`）
+
+3. **预约提前量校验**：创建订单时 `plannedStartTime` 必须距当前时间 ≥ 30 分钟（`app.order.min-lead-time-minutes` 可配），否则返回 HTTP **422** + `errorCode: APPOINTMENT_TOO_SOON`
+
+4. **紧急联系人电话明文返回**：`GET /api/users/{me}/emergency-contacts` 返回**明文**电话（接口仅限本人访问）。前端原先展示的掩码需自行处理展示层脱敏。`PUT` 更新改为 PATCH 语义：未传 `phone` 字段保留原值。
+
+#### 各项详情
+
+| # | 问题 | 修复 | 文件 |
+|---|------|------|------|
+| 1 | `isAvailable` 开启后查询未生效 | `wantsDispatch` 落库到 `volunteer_profile` 表；`GET/PUT /profile` 读写；派单候选筛选 + 接单校验均以 DB 为准 | `VolunteerProfile`, `VolunteerService`, `VolunteerLocationService`, `DispatchService` |
+| 2 | 接单失败缺统一错误码 | 新建 `ErrorCode` 枚举；`OrderStatusException` 加 `errorCode`；接单各分支返回 `ORDER_ALREADY_ACCEPTED`/`ORDER_DISPATCH_MISMATCH`/`ORDER_CONCURRENT_CONFLICT` | `ErrorCode`, `OrderStatusException`, `GlobalExceptionHandler`, `DispatchService` |
+| 3 | 不足 30 分钟预约仍创建成功 | 新建 `OrderTooSoonException` → HTTP 422 + `APPOINTMENT_TOO_SOON`；阈值 `app.order.min-lead-time-minutes=30` | `OrderTooSoonException`, `OrderCreationService`, `application.properties` |
+| 4 | 验证码错误返回 `{"error":...}` | `AuthException` 加 `errorCode`；统一返回 `{success,code,errorCode,message}`；新增 `INVALID_VERIFICATION_CODE`/`PHONE_FORMAT_INVALID`/`USER_NOT_FOUND` | `AuthException`, `AuthService`, `GlobalExceptionHandler` |
+| 5 | 本人读紧急联系人电话被掩码 | `toResponse` 返回明文；`updateContact` 改 PATCH 语义；放宽 `@NotBlank` 由 service 手动校验新增必填 | `EmergencyContactService`, `EmergencyContactRequest` |
+| 6 | `DRIVER_ARRIVED → IN_PROGRESS` 无触发方 | 明确"到达即开始"语义：`DRIVER_ARRIVED` 视为服务进行中可直接 `/finish`；修复 `findTimedOutOrders` 让卡在 `DRIVER_ARRIVED`/`DRIVER_EN_ROUTE` 的超时订单也能自动完成 | `OrderStatus`, `RunOrderRepository`, `OrderTimeoutScheduler` |
+
+#### 顺手加固
+
+- `OrderFlowTest.TC-ORDER-01` 改用轮询等待 `IN_PROGRESS`，消除异步时序导致的 flaky。
+- 新增 `EmergencyContactApiTest`（3 用例）、`OrderValidationTest` 补 2 用例（提前量 422/通过）。
+
+#### ⚠️ 数据库迁移（生产部署必做）
+
+`volunteer_profile` 表新增 `wants_dispatch` 列。生产环境（`ddl-auto=validate`）首次部署前需手动执行：
+```sql
+ALTER TABLE volunteer_profile ADD COLUMN wants_dispatch BOOLEAN NOT NULL DEFAULT TRUE;
+```
+
+---
+
 ## [1.4.3] - 2026-06-20
 
 ### 缺陷修复 — 安全 / 异常处理（B1/C1）

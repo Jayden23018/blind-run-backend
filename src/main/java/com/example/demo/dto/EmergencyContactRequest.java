@@ -1,20 +1,21 @@
 package com.example.demo.dto;
 
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 /**
  * 紧急联系人创建/更新请求
+ *
+ * 【PATCH 语义】用于 PUT 更新时，未传（null）的字段保留原值，
+ * 因此 name/phone 不加 @NotBlank（避免未传时直接 400）。
+ * 新增场景的必填校验由 EmergencyContactService.addContact 手动完成。
  */
 @Data
 public class EmergencyContactRequest {
 
-    @NotBlank(message = "联系人姓名不能为空")
     @Size(max = 50)
     private String name;
 
-    @NotBlank(message = "联系人电话不能为空")
     @Size(max = 20)
     private String phone;
 

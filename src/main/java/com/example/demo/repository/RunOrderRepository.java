@@ -33,8 +33,13 @@ public interface RunOrderRepository extends JpaRepository<RunOrder, Long> {
     @Query("SELECT o FROM RunOrder o JOIN FETCH o.blindUser LEFT JOIN FETCH o.volunteer WHERE o.id = :id")
     Optional<RunOrder> findByIdWithUsers(@Param("id") Long id);
 
-    /** 查询超时未完成的订单（供定时任务使用） */
-    @Query("SELECT o FROM RunOrder o WHERE o.status = 'IN_PROGRESS' AND o.plannedEndTime < :now")
+    /**
+     * 查询超时未完成的订单（供定时任务使用）。
+     * 三个"服务进行中"状态（IN_PROGRESS / DRIVER_EN_ROUTE / DRIVER_ARRIVED）超过 plannedEndTime
+     * 都应被自动完成 —— 否则卡在 DRIVER_ARRIVED 的订单（到达后未点结束）永远不会被回收。
+     * 与 OrderLifecycleService.finishOrder 接受的前置状态保持一致。
+     */
+    @Query("SELECT o FROM RunOrder o WHERE o.status IN ('IN_PROGRESS', 'DRIVER_EN_ROUTE', 'DRIVER_ARRIVED') AND o.plannedEndTime < :now")
     List<RunOrder> findTimedOutOrders(@Param("now") LocalDateTime now);
 
     /** 分页查询盲人用户的所有订单 */

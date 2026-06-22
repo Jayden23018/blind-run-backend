@@ -41,8 +41,8 @@ class OrderFlowTest extends BaseIntegrationTest {
         Thread.sleep(500); // 等待异步 DispatchService 启动
         testHelper.respondAccept(volToken, orderId);
 
-        // 接单后状态应为 IN_PROGRESS
-        assertThat(testHelper.getOrderStatus(blindToken, orderId)).isEqualTo(OrderStatus.IN_PROGRESS);
+        // 接单后状态应为 IN_PROGRESS（异步事件推进，用轮询等待避免 flaky）
+        testHelper.waitForOrderStatus(volToken, orderId, OrderStatus.IN_PROGRESS, 3);
 
         // 志愿者完成服务 → COMPLETED
         testHelper.finishOrder(volToken, orderId);

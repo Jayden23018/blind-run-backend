@@ -30,17 +30,20 @@ public class VolunteerService {
     private final UserRepository userRepository;
     private final FileStorageService fileStorageService;
     private final DispatchService dispatchService;
+    private final VolunteerLocationService volunteerLocationService;
 
     public VolunteerService(VolunteerProfileRepository volunteerProfileRepository,
                             VolunteerAvailableTimeRepository volunteerAvailableTimeRepository,
                             UserRepository userRepository,
                             FileStorageService fileStorageService,
-                            DispatchService dispatchService) {
+                            DispatchService dispatchService,
+                            VolunteerLocationService volunteerLocationService) {
         this.volunteerProfileRepository = volunteerProfileRepository;
         this.volunteerAvailableTimeRepository = volunteerAvailableTimeRepository;
         this.userRepository = userRepository;
         this.fileStorageService = fileStorageService;
         this.dispatchService = dispatchService;
+        this.volunteerLocationService = volunteerLocationService;
     }
 
     /**
@@ -66,7 +69,8 @@ public class VolunteerService {
                 profile.getVerificationStatus().name(),
                 slots,
                 profile.getAcceptsGuideDog(),
-                profile.getPaceRange()
+                profile.getPaceRange(),
+                profile.getWantsDispatch()
         );
     }
 
@@ -83,6 +87,11 @@ public class VolunteerService {
         profile.setName(request.getName());
         if (request.getAcceptsGuideDog() != null) profile.setAcceptsGuideDog(request.getAcceptsGuideDog());
         if (request.getPaceRange() != null) profile.setPaceRange(request.getPaceRange());
+        if (request.getWantsDispatch() != null) {
+            profile.setWantsDispatch(request.getWantsDispatch());
+            // 已在下方 save 落库；此处仅同步 Redis 派单热路径缓存，保持与 DB 一致
+            volunteerLocationService.syncWantsDispatchToRedis(userId, request.getWantsDispatch());
+        }
         volunteerProfileRepository.save(profile);
         dispatchService.evictProfileCache(userId);
 

@@ -26,4 +26,10 @@ public class VolunteerProfileUpdateRequest {
 
     /** 志愿者可适应的配速范围 */
     private PacePreference paceRange;
+
+    /**
+     * 是否开启接单（可服务状态）。可选，PATCH 语义：未传保留原值。
+     * false 时志愿者可浏览订单但不能接单。
+     */
+    private Boolean wantsDispatch;
 }

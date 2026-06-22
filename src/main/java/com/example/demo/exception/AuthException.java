@@ -11,10 +11,29 @@ package com.example.demo.exception;
  * 【RuntimeException vs Exception？】
  * RuntimeException 是 "非受检异常"，不需要在方法签名中声明 throws，
  * Spring 的事务管理遇到 RuntimeException 时会自动回滚。
+ *
+ * 【errorCode】
+ * 带 errorCode 的构造器让前端能程序化区分不同认证失败场景
+ * （如 INVALID_VERIFICATION_CODE / PHONE_FORMAT_INVALID / USER_NOT_FOUND），
+ * GlobalExceptionHandler 会把 errorCode 写入响应体。
  */
 public class AuthException extends RuntimeException {
 
+    private final String errorCode;
+
+    /** 单参构造：errorCode 为 null，兼容不区分场景的调用 */
     public AuthException(String message) {
         super(message);
+        this.errorCode = null;
+    }
+
+    /** 明确场景构造：前端可根据 errorCode 做不同处理 */
+    public AuthException(ErrorCode errorCode, String message) {
+        super(message);
+        this.errorCode = errorCode.code();
+    }
+
+    public String getErrorCode() {
+        return errorCode;
     }
 }

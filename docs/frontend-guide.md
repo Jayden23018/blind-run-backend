@@ -1,5 +1,34 @@
 # 助盲跑后端 — 前端开发对接指南
 
+> ## ⚠️ v1.5.0 前端联调升级说明（2026-06-22，必读）
+>
+> 本次后端修复了前端联调反馈的 6 项问题，含 **API 契约变更**，前端需配合升级。完整说明见 [CHANGELOG 1.5.0](./CHANGELOG.md)。
+>
+> | 变更 | 前端需做的事 |
+> |------|-------------|
+> | **统一错误结构** | 所有错误响应统一为 `{success, code, errorCode, message}`。验证码错误不再返回 `{"error":...}`。用 `errorCode` 字段做程序化分支（见下方错误码表）。 |
+> | **志愿者可服务状态** | `GET /api/volunteer/profile` 响应新增 `wantsDispatch`（boolean）字段，用于展示开关状态。`PUT /api/volunteer/profile` 传 `wantsDispatch` 切换。**关闭时接单会被拒（403 + `VOLUNTEER_NOT_AVAILABLE`）**。 |
+> | **预约提前量** | 创建订单时 `plannedStartTime` 必须 ≥ 当前时间 + 30 分钟，否则返回 **HTTP 422** + `errorCode: APPOINTMENT_TOO_SOON`。前端表单应做前置提示。 |
+> | **紧急联系人电话明文** | `GET /api/users/{me}/emergency-contacts` 返回**明文**电话（不再掩码）。前端展示层需自行脱敏。`PUT` 更新改 PATCH 语义：未传 `phone` 字段保留原值（不必每次回传）。 |
+> | **状态机语义** | 盲人端无需"确认开始服务"。志愿者 `/arrived` 进入 `DRIVER_ARRIVED` 即视为服务进行中，可直接 `/finish`。`IN_PROGRESS` = 接单后出发前。 |
+>
+> ### 错误码表（errorCode）
+>
+> | errorCode | HTTP | 含义 |
+> |-----------|------|------|
+> | `INVALID_VERIFICATION_CODE` | 400 | 验证码错误或已过期 |
+> | `PHONE_FORMAT_INVALID` | 400 | 手机号格式不正确 |
+> | `USER_NOT_FOUND` | 404 | 用户不存在 |
+> | `VOLUNTEER_NOT_AVAILABLE` | 403 | 志愿者已关闭可服务状态，可浏览但不能接单 |
+> | `VOLUNTEER_NOT_REGISTERED` | 403 | 志愿者注册流程未完成 |
+> | `VOLUNTEER_NOT_VERIFIED` | 403 | 志愿者证件审核未通过 |
+> | `ORDER_ALREADY_ACCEPTED` | 409 | 订单已被他人接单 / 状态不允许接单 |
+> | `ORDER_DISPATCH_MISMATCH` | 409 | 该订单当前未派送给您 |
+> | `ORDER_CONCURRENT_CONFLICT` | 409 | 订单并发冲突，请稍后重试 |
+> | `APPOINTMENT_TOO_SOON` | 422 | 预约开始时间距当前时间不足 30 分钟 |
+
+---
+
 ## 一、基础信息
 
 | 项目 | 地址 |
@@ -40,8 +69,11 @@
 // 请求
 { "phone": "13800138000", "code": "123456" }
 
-// 响应
+// 响应（成功）
 { "token": "eyJhbGciOiJIUzUxMiJ9...", "userId": 1, "role": "UNSET" }
+
+// 响应（失败：验证码错误，HTTP 400）
+{ "success": false, "code": 400, "errorCode": "INVALID_VERIFICATION_CODE", "message": "验证码错误或已过期" }
 ```
 
 #### 客服登录（独立系统）
@@ -217,6 +249,8 @@ PENDING_MATCH → PENDING_ACCEPT → IN_PROGRESS → DRIVER_EN_ROUTE → DRIVER_
        ↓              ↓               ↓              ↓                ↓
     CANCELLED    REMATCHING        CANCELLED     REMATCHING       REMATCHING
 ```
+> **语义说明（v1.5.0）**：盲人端**无需"确认开始服务"按钮**。`IN_PROGRESS` = 接单后、出发前；`DRIVER_ARRIVED` = 志愿者已到达，视为服务进行中。三个进行中状态（IN_PROGRESS / DRIVER_EN_ROUTE / DRIVER_ARRIVED）均可由志愿者直接 `/finish` 完成。
+> **创建订单提前量**：`plannedStartTime` 必须 ≥ 当前时间 + 30 分钟，否则 HTTP 422 + `errorCode: APPOINTMENT_TOO_SOON`。
 
 | 方法 | 路径 | 说明 | 角色 |
 |------|------|------|------|
@@ -508,7 +542,7 @@ Authorization: Bearer <token>
 | 短信验证码登录 | 阿里云短信，真正发送 |
 | 用户角色管理 | 设置 BLIND/VOLUNTEER 角色 |
 | 盲人资料管理 | 增删改查 |
-| 紧急联系人管理 | 1~5 个，脱敏返回 |
+| 紧急联系人管理 | 1~5 个，本人读取返回**明文**电话（v1.5.0，前端展示层自行脱敏） |
 | 志愿者 4 步注册 | 基本信息→身份证→人脸→培训 |
 | 志愿者资料管理 | 含时间段设置 |
 | 订单完整生命周期 | 创建→匹配→接单→出发→到达→完成 |

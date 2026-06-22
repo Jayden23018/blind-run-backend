@@ -4,9 +4,11 @@ import com.example.demo.entity.OrderStatus;
 import com.example.demo.entity.RunOrder;
 import com.example.demo.entity.User;
 import com.example.demo.entity.VolunteerLocation;
+import com.example.demo.entity.VolunteerProfile;
 import com.example.demo.repository.RunOrderRepository;
 import com.example.demo.repository.UserRepository;
 import com.example.demo.repository.VolunteerLocationRepository;
+import com.example.demo.repository.VolunteerProfileRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -55,6 +57,7 @@ public class VolunteerLocationService {
     private final NotificationService notificationService;
     private final ProximityService proximityService;
     private final BlindLocationService blindLocationService;
+    private final VolunteerProfileRepository volunteerProfileRepository;
 
     /** Redis key 前缀 */
     private static final String REDIS_KEY_PREFIX = "vol:loc:";
@@ -73,7 +76,8 @@ public class VolunteerLocationService {
                                      RunOrderRepository runOrderRepository,
                                      NotificationService notificationService,
                                      ProximityService proximityService,
-                                     BlindLocationService blindLocationService) {
+                                     BlindLocationService blindLocationService,
+                                     VolunteerProfileRepository volunteerProfileRepository) {
         this.locationRepository = locationRepository;
         this.userRepository = userRepository;
         this.redisTemplate = redisTemplate;
@@ -82,6 +86,7 @@ public class VolunteerLocationService {
         this.notificationService = notificationService;
         this.proximityService = proximityService;
         this.blindLocationService = blindLocationService;
+        this.volunteerProfileRepository = volunteerProfileRepository;
     }
 
     /**
@@ -193,25 +198,50 @@ public class VolunteerLocationService {
     }
 
     /**
-     * 更新志愿者接单开关，不改变位置和在线状态
+     * 更新志愿者接单开关，不改变位置和在线状态。
+     *
+     * 【持久化优先】先落库到 volunteer_profile.wants_dispatch（数据源），再同步 Redis 热路径。
+     * 即使 Redis 位置 key 不存在（TTL 过期/从未上报位置），也会落库 + 创建最小 Redis 记录，
+     * 避免之前"key 不存在时静默 return 导致开关丢失"的 bug。
+     *
+     * 用于 PUT /api/volunteer/dispatch-status 入口。
      */
     public void updateDispatchStatus(Long userId, boolean wantsDispatch) {
+        // 1. 落库（数据源）
+        volunteerProfileRepository.findById(userId).ifPresent(profile -> {
+            profile.setWantsDispatch(wantsDispatch);
+            volunteerProfileRepository.save(profile);
+        });
+        // 2. 同步 Redis 热路径
+        syncWantsDispatchToRedis(userId, wantsDispatch);
+    }
+
+    /**
+     * 仅同步接单开关到 Redis（不落库）。供 VolunteerService.updateProfile 在已落库后调用，
+     * 避免重复 save。Redis 失败不影响 DB 结果，派单时会回退读 DB。
+     */
+    public void syncWantsDispatchToRedis(Long userId, boolean wantsDispatch) {
         String key = REDIS_KEY_PREFIX + userId;
         try {
             String existing = redisTemplate.opsForValue().get(key);
-            if (existing == null) {
-                log.debug("志愿者 {} 的位置 key 不存在，接单开关变更将在下次位置上报时生效", userId);
-                return;
+            long remainTtl = locationTtlSeconds;
+            Map<String, Object> data;
+            if (existing != null) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> parsed = new HashMap<>(objectMapper.readValue(existing, Map.class));
+                data = parsed;
+                Long ttl = redisTemplate.getExpire(key, TimeUnit.SECONDS);
+                if (ttl != null && ttl > 0) remainTtl = ttl;
+            } else {
+                // key 不存在：创建仅含开关的最小记录（无坐标），下次位置上报会补全
+                data = new HashMap<>();
+                data.put("isOnline", false);
             }
-            @SuppressWarnings("unchecked")
-            Map<String, Object> data = new HashMap<>(objectMapper.readValue(existing, Map.class));
             data.put("wantsDispatch", wantsDispatch);
-            Long ttl = redisTemplate.getExpire(key, TimeUnit.SECONDS);
-            long remainTtl = (ttl != null && ttl > 0) ? ttl : locationTtlSeconds;
             redisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(data), remainTtl, TimeUnit.SECONDS);
-            log.info("志愿者 {} 接单开关已设为 {}", userId, wantsDispatch);
+            log.info("志愿者 {} 接单开关已同步到 Redis: {}", userId, wantsDispatch);
         } catch (Exception e) {
-            log.warn("更新志愿者 {} 接单状态失败: {}", userId, e.getMessage());
+            log.warn("同步志愿者 {} 接单开关到 Redis 失败: {}", userId, e.getMessage());
         }
     }
 

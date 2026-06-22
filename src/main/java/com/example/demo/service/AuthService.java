@@ -4,6 +4,7 @@ import com.example.demo.dto.LoginResponse;
 import com.example.demo.entity.User;
 import com.example.demo.entity.UserRole;
 import com.example.demo.exception.AuthException;
+import com.example.demo.exception.ErrorCode;
 import com.example.demo.repository.UserRepository;
 import com.example.demo.util.JwtUtil;
 import org.springframework.stereotype.Service;
@@ -34,7 +35,7 @@ public class AuthService {
      */
     public void sendVerificationCode(String phone) {
         if (phone == null || !phone.matches("^\\d{11}$")) {
-            throw new AuthException("手机号格式不正确，请输入11位数字");
+            throw new AuthException(ErrorCode.PHONE_FORMAT_INVALID, "手机号格式不正确，请输入11位数字");
         }
 
         String code = verificationCodeService.generateAndStoreCode(phone);
@@ -49,7 +50,7 @@ public class AuthService {
     public LoginResponse verifyCodeAndLogin(String phone, String code) {
         boolean isValid = verificationCodeService.verifyCode(phone, code);
         if (!isValid) {
-            throw new AuthException("验证码错误或已过期");
+            throw new AuthException(ErrorCode.INVALID_VERIFICATION_CODE, "验证码错误或已过期");
         }
 
         User user = userRepository.findByPhone(phone).orElseGet(() -> {
@@ -72,6 +73,6 @@ public class AuthService {
      */
     public User getCurrentUser(Long userId) {
         return userRepository.findById(userId)
-                .orElseThrow(() -> new AuthException("用户不存在"));
+                .orElseThrow(() -> new AuthException(ErrorCode.USER_NOT_FOUND, "用户不存在"));
     }
 }

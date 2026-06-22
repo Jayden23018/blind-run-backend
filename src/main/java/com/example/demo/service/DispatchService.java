@@ -3,6 +3,8 @@ package com.example.demo.service;
 import com.example.demo.dto.RespondAction;
 import com.example.demo.dto.ScoredCandidate;
 import com.example.demo.entity.*;
+import com.example.demo.exception.ErrorCode;
+import com.example.demo.exception.OrderNotFoundException;
 import com.example.demo.exception.OrderPermissionException;
 import com.example.demo.exception.OrderStatusException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -132,7 +134,7 @@ public class DispatchService {
         // 1. 校验 dispatch_current 匹配
         Long currentVolunteer = getCurrentVolunteer(orderId);
         if (currentVolunteer == null || !currentVolunteer.equals(volunteerId)) {
-            throw new OrderStatusException("该订单当前未派送给您，无法接单");
+            throw new OrderStatusException(ErrorCode.ORDER_DISPATCH_MISMATCH, "该订单当前未派送给您，无法接单");
         }
 
         // 2. 分布式锁防并发（TTL 30s，远超正常处理时间）
@@ -140,7 +142,7 @@ public class DispatchService {
         boolean locked = Boolean.TRUE.equals(
                 redisTemplate.opsForValue().setIfAbsent(lockKey, String.valueOf(volunteerId), 30, TimeUnit.SECONDS));
         if (!locked) {
-            throw new OrderStatusException("订单正在处理中，请稍后重试");
+            throw new OrderStatusException(ErrorCode.ORDER_CONCURRENT_CONFLICT, "订单正在处理中，请稍后重试");
         }
 
         try {
@@ -149,10 +151,12 @@ public class DispatchService {
                 attempts++;
                 try {
                     RunOrder order = runOrderRepository.findById(orderId)
-                            .orElseThrow(() -> new IllegalArgumentException("订单不存在: " + orderId));
+                            .orElseThrow(() -> new OrderNotFoundException("订单不存在: " + orderId));
 
                     if (order.getStatus() != OrderStatus.PENDING_MATCH) {
-                        throw new OrderStatusException("订单状态不允许接单: " + order.getStatus());
+                        // 通常是订单已被他人接单（状态已变为 PENDING_ACCEPT 等）
+                        throw new OrderStatusException(ErrorCode.ORDER_ALREADY_ACCEPTED,
+                                "订单已被他人接单或状态不允许接单: " + order.getStatus());
                     }
 
                     // 3. 更新订单状态（先保存 DB，成功后再清 Redis）
@@ -174,7 +178,7 @@ public class DispatchService {
                     break;
                 } catch (OptimisticLockingFailureException e) {
                     if (attempts >= 3) {
-                        throw new OrderStatusException("订单并发冲突，请稍后重试");
+                        throw new OrderStatusException(ErrorCode.ORDER_CONCURRENT_CONFLICT, "订单并发冲突，请稍后重试");
                     }
                     log.warn("志愿者 {} 接单 {} 乐观锁冲突，第 {} 次重试", volunteerId, orderId, attempts);
                 }
@@ -259,6 +263,12 @@ public class DispatchService {
         if (!Boolean.TRUE.equals(profile.getVerified())) {
             throw new OrderPermissionException("VOLUNTEER_NOT_VERIFIED", "请先完成志愿者认证");
         }
+        // MVP 规则：关闭可服务状态（wantsDispatch=false）时，志愿者可浏览订单但不能接单。
+        // 以 DB 为准（Redis 可能过期），给前端明确的 403 + VOLUNTEER_NOT_AVAILABLE。
+        if (Boolean.FALSE.equals(profile.getWantsDispatch())) {
+            throw new OrderPermissionException("VOLUNTEER_NOT_AVAILABLE",
+                    "您当前已关闭可服务状态，无法接单。请在「我的」中开启可服务状态");
+        }
         switch (action) {
             case ACCEPT -> {
                 handleAccept(orderId, volunteerId);
@@ -308,6 +318,17 @@ public class DispatchService {
         }
 
         Map<Long, VolunteerProfile> profiles = loadProfilesCached(volunteerIds);
+
+        // 过滤掉已关闭可服务状态（wantsDispatch=false）的志愿者 —— 以 DB 为准
+        // （Redis 的 wantsDispatch 仅用于位置 key 级别早筛，最终以落库值为数据源）
+        locations = locations.stream()
+                .filter(loc -> {
+                    Object id = loc.get("userId");
+                    if (!(id instanceof Number n)) return true;
+                    VolunteerProfile p = profiles.get(n.longValue());
+                    return p == null || !Boolean.FALSE.equals(p.getWantsDispatch());
+                })
+                .toList();
 
         List<VolunteerAvailableTime> allSlots = availableTimeRepository.findByVolunteerIdIn(volunteerIds);
         Map<Long, List<VolunteerAvailableTime>> availability = allSlots.stream()

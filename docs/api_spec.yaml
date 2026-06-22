@@ -1412,6 +1412,7 @@ components:
           type: string
         phone:
           type: string
+          description: 明文电话（v1.5.0，本人读取不再掩码，前端展示层自行脱敏）
         relationship:
           type: string
         isPrimary:
@@ -1834,6 +1835,9 @@ components:
           - MODERATE
           - FAST
           - NO_PREFERENCE
+        wantsDispatch:
+          type: boolean
+          description: 是否开启接单（可服务状态）。false 时可浏览订单但不能接单。
     CallRecord:
       type: object
       properties:

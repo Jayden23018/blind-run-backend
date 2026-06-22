@@ -108,6 +108,19 @@ public class VolunteerProfile {
     @Column(name = "pace_range", length = 20, nullable = false)
     private PacePreference paceRange = PacePreference.NO_PREFERENCE;
 
+    /**
+     * 是否开启接单（可服务状态）。
+     * true = 可以被派单并接单；false = 可浏览订单但不能接单（MVP 规则）。
+     *
+     * 【为什么放这里？】
+     * 之前 wantsDispatch 只存在 Redis 的 vol:loc:{userId} JSON 里（TTL 30s），
+     * 不落库、GET /profile 不返回、Redis key 过期即丢失。
+     * 作为志愿者资料的持久属性放在 volunteer_profile 表，与 verified/registrationStep
+     * 一同作为接单前置校验的数据源。Redis 仅作派单热路径缓存。
+     */
+    @Column(name = "wants_dispatch", nullable = false)
+    private Boolean wantsDispatch = true;
+
     // ========== 派单评分相关字段 ==========
 
     /** 平均评分（1.0-5.0），null 表示尚无评价 */

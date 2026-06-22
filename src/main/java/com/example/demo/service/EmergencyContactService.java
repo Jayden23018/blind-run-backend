@@ -9,7 +9,6 @@ import com.example.demo.exception.PermissionDeniedException;
 import com.example.demo.exception.ResourceNotFoundException;
 import com.example.demo.repository.EmergencyContactRepository;
 import com.example.demo.repository.UserRepository;
-import com.example.demo.util.PhoneMaskUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,6 +49,14 @@ public class EmergencyContactService {
     public EmergencyContactResponse addContact(Long userId, EmergencyContactRequest request) {
         validateBlindUser(userId);
 
+        // 新增场景：姓名和电话必填（DTO 已放宽 @NotBlank 以支持 PUT 的 PATCH 语义，此处手动校验新增）
+        if (request.getName() == null || request.getName().isBlank()) {
+            throw new IllegalArgumentException("联系人姓名不能为空");
+        }
+        if (request.getPhone() == null || request.getPhone().isBlank()) {
+            throw new IllegalArgumentException("联系人电话不能为空");
+        }
+
         long count = contactRepository.countByUserId(userId);
         if (count >= 5) {
             throw new IllegalStateException("最多添加 5 个紧急联系人");
@@ -84,7 +91,7 @@ public class EmergencyContactService {
         return toResponse(contact);
     }
 
-    /** 修改紧急联系人 */
+    /** 修改紧急联系人（PATCH 语义：未传字段保留原值） */
     @Transactional
     public EmergencyContactResponse updateContact(Long userId, Long contactId, EmergencyContactRequest request) {
         validateBlindUser(userId);
@@ -99,9 +106,10 @@ public class EmergencyContactService {
             clearPrimaryFlag(userId);
         }
 
-        contact.setName(request.getName());
-        contact.setPhone(request.getPhone());
-        contact.setRelationship(request.getRelationship());
+        // PATCH 语义：仅更新请求中明确传入的字段，未传（null）保留原值
+        if (request.getName() != null) contact.setName(request.getName());
+        if (request.getPhone() != null) contact.setPhone(request.getPhone());
+        if (request.getRelationship() != null) contact.setRelationship(request.getRelationship());
         if (request.getIsPrimary() != null) {
             contact.setIsPrimary(request.getIsPrimary());
         }
@@ -180,7 +188,10 @@ public class EmergencyContactService {
         EmergencyContactResponse resp = new EmergencyContactResponse();
         resp.setId(contact.getId());
         resp.setName(contact.getName());
-        resp.setPhone(PhoneMaskUtils.mask(contact.getPhone()));
+        // 本人读取返回明文电话：该接口经 SecurityConfig 限定仅 BLIND 本人可访问，
+        // controller verifyUser 再校验 JWT=路径 userId，无他人读取路径。
+        // 内部 EmergencyService 发短信本就走明文（不经 toResponse），不受影响。
+        resp.setPhone(contact.getPhone());
         resp.setRelationship(contact.getRelationship());
         resp.setIsPrimary(contact.getIsPrimary());
         return resp;
