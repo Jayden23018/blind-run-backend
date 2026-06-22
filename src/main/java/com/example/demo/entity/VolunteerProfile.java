@@ -138,6 +138,10 @@ public class VolunteerProfile {
     @Column(name = "acceptance_rate")
     private Double acceptanceRate;
 
+    /** 可服务状态：志愿者主动开关，false 时不参与派单也不能接单 */
+    @Column(name = "is_available", nullable = false)
+    private Boolean isAvailable = true;
+
     /** 身份证审核拒绝原因 */
     @Column(name = "id_verify_rejection_reason", length = 500)
     private String idVerifyRejectionReason;

@@ -9,7 +9,6 @@ import com.example.demo.exception.PermissionDeniedException;
 import com.example.demo.exception.ResourceNotFoundException;
 import com.example.demo.repository.EmergencyContactRepository;
 import com.example.demo.repository.UserRepository;
-import com.example.demo.util.PhoneMaskUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -180,7 +179,7 @@ public class EmergencyContactService {
         EmergencyContactResponse resp = new EmergencyContactResponse();
         resp.setId(contact.getId());
         resp.setName(contact.getName());
-        resp.setPhone(PhoneMaskUtils.mask(contact.getPhone()));
+        resp.setPhone(contact.getPhone());
         resp.setRelationship(contact.getRelationship());
         resp.setIsPrimary(contact.getIsPrimary());
         return resp;

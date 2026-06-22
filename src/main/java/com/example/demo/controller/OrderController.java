@@ -125,6 +125,14 @@ public class OrderController {
         return ResponseEntity.ok(Map.of("success", true, "orderId", id));
     }
 
+    /** 志愿者确认开始服务（DRIVER_ARRIVED → IN_PROGRESS） */
+    @PostMapping("/{id}/start")
+    public ResponseEntity<?> startService(@PathVariable @Min(1) Long id) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        orderLifecycleService.startService(id, userId);
+        return ResponseEntity.ok(Map.of("success", true, "orderId", id));
+    }
+
     @PostMapping("/{id}/finish")
     public ResponseEntity<?> finishOrder(@PathVariable @Min(1) Long id) {
         Long userId = SecurityUtils.getCurrentUserId();

@@ -4,6 +4,7 @@ import com.example.demo.dto.CreateOrderRequest;
 import com.example.demo.dto.OrderResponse;
 import com.example.demo.entity.*;
 import com.example.demo.event.OrderCreatedEvent;
+import com.example.demo.exception.BusinessException;
 import com.example.demo.exception.DuplicateOrderException;
 import com.example.demo.exception.OrderPermissionException;
 import com.example.demo.repository.BlindProfileRepository;
@@ -56,6 +57,9 @@ public class OrderCreationService {
         }
         if (!request.getPlannedStartTime().isAfter(LocalDateTime.now())) {
             throw new IllegalArgumentException("计划开始时间不能早于当前时间");
+        }
+        if (!request.getPlannedStartTime().isAfter(LocalDateTime.now().plusMinutes(30))) {
+            throw new BusinessException("APPOINTMENT_TOO_SOON", "预约时间距当前时间不足30分钟");
         }
 
         boolean hasActiveOrder = runOrderRepository.existsByBlindUserIdAndStatusIn(

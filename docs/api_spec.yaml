@@ -745,6 +745,32 @@ paths:
             'application/json':
               schema:
                 type: object
+  /api/orders/{id}/start:
+    post:
+      tags:
+      - order-controller
+      summary: 志愿者确认开始服务（DRIVER_ARRIVED → IN_PROGRESS）
+      description: 志愿者到达后确认开始服务，由志愿者触发。前端移除盲人端"确认开始服务"按钮后，改由此接口替代。
+      operationId: startService
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+        '403':
+          description: 非订单参与者
+        '409':
+          description: 订单状态不允许此操作
   /api/orders/{id}/finish:
     post:
       tags:
@@ -1385,6 +1411,9 @@ components:
           - MODERATE
           - FAST
           - NO_PREFERENCE
+        isAvailable:
+          type: boolean
+          description: 可服务状态（可选，不传则不修改）
     EmergencyContactRequest:
       type: object
       properties:
@@ -1834,6 +1863,9 @@ components:
           - MODERATE
           - FAST
           - NO_PREFERENCE
+        isAvailable:
+          type: boolean
+          description: 可服务状态，false 时不参与派单也不能接单
     CallRecord:
       type: object
       properties:

@@ -49,7 +49,7 @@ public class AuthService {
     public LoginResponse verifyCodeAndLogin(String phone, String code) {
         boolean isValid = verificationCodeService.verifyCode(phone, code);
         if (!isValid) {
-            throw new AuthException("验证码错误或已过期");
+            throw new AuthException("INVALID_VERIFICATION_CODE", "验证码错误或已过期");
         }
 
         User user = userRepository.findByPhone(phone).orElseGet(() -> {

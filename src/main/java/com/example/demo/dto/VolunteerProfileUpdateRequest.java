@@ -26,4 +26,7 @@ public class VolunteerProfileUpdateRequest {
 
     /** 志愿者可适应的配速范围 */
     private PacePreference paceRange;
+
+    /** 可服务状态（可选，不传则不修改） */
+    private Boolean isAvailable;
 }

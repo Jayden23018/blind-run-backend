@@ -7,6 +7,7 @@ import com.example.demo.entity.VolunteerLocation;
 import com.example.demo.repository.RunOrderRepository;
 import com.example.demo.repository.UserRepository;
 import com.example.demo.repository.VolunteerLocationRepository;
+import com.example.demo.repository.VolunteerProfileRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -55,6 +56,7 @@ public class VolunteerLocationService {
     private final NotificationService notificationService;
     private final ProximityService proximityService;
     private final BlindLocationService blindLocationService;
+    private final VolunteerProfileRepository volunteerProfileRepository;
 
     /** Redis key 前缀 */
     private static final String REDIS_KEY_PREFIX = "vol:loc:";
@@ -73,7 +75,8 @@ public class VolunteerLocationService {
                                      RunOrderRepository runOrderRepository,
                                      NotificationService notificationService,
                                      ProximityService proximityService,
-                                     BlindLocationService blindLocationService) {
+                                     BlindLocationService blindLocationService,
+                                     VolunteerProfileRepository volunteerProfileRepository) {
         this.locationRepository = locationRepository;
         this.userRepository = userRepository;
         this.redisTemplate = redisTemplate;
@@ -82,6 +85,7 @@ public class VolunteerLocationService {
         this.notificationService = notificationService;
         this.proximityService = proximityService;
         this.blindLocationService = blindLocationService;
+        this.volunteerProfileRepository = volunteerProfileRepository;
     }
 
     /**
@@ -215,15 +219,26 @@ public class VolunteerLocationService {
         }
     }
 
-    /** 从 Redis 读取现有的 wantsDispatch 值，key 不存在时默认 true */
+    /** 从 Redis 读取现有的 wantsDispatch 值；key 不存在时回落到 DB，DB 也不存在时默认 true */
     private boolean readWantsDispatch(String key) {
         try {
             String existing = redisTemplate.opsForValue().get(key);
-            if (existing == null) return true;
-            @SuppressWarnings("unchecked")
-            Map<String, Object> data = objectMapper.readValue(existing, Map.class);
-            Object flag = data.get("wantsDispatch");
-            return flag == null || Boolean.TRUE.equals(flag);
+            if (existing != null) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> data = objectMapper.readValue(existing, Map.class);
+                Object flag = data.get("wantsDispatch");
+                return flag == null || Boolean.TRUE.equals(flag);
+            }
+        } catch (Exception e) {
+            log.warn("读取 wantsDispatch 失败，回落到 DB: {}", e.getMessage());
+        }
+        // Redis key 不存在（TTL 到期），从 DB 恢复
+        try {
+            String userIdStr = key.substring(REDIS_KEY_PREFIX.length());
+            Long userId = Long.parseLong(userIdStr);
+            return volunteerProfileRepository.findByUserId(userId)
+                    .map(p -> Boolean.TRUE.equals(p.getIsAvailable()))
+                    .orElse(true);
         } catch (Exception e) {
             return true;
         }

@@ -157,6 +157,28 @@ public class OrderLifecycleService {
     }
 
     @Transactional
+    public void startService(Long orderId, Long volunteerId) {
+        RunOrder order = runOrderRepository.findById(orderId)
+                .orElseThrow(() -> new OrderNotFoundException("订单不存在，ID: " + orderId));
+
+        if (order.getVolunteer() == null || !order.getVolunteer().getId().equals(volunteerId)) {
+            throw new OrderPermissionException("NOT_ORDER_PARTICIPANT", "只有接单的志愿者才能操作");
+        }
+        if (order.getStatus() != OrderStatus.DRIVER_ARRIVED) {
+            throw new OrderStatusException("当前订单状态不允许此操作，需处于志愿者已到达状态");
+        }
+
+        String oldStatus = order.getStatus().name();
+        order.setStatus(OrderStatus.IN_PROGRESS);
+        runOrderRepository.save(order);
+
+        statusLogService.logStatusChange(orderId, oldStatus, "IN_PROGRESS", volunteerId, "志愿者确认开始服务");
+        notifyBlindUser(order.getBlindUser().getId(), "SERVICE_STARTED", volunteerId);
+
+        log.info("志愿者 {} 确认开始服务，订单ID={}", volunteerId, orderId);
+    }
+
+    @Transactional
     public void finishOrder(Long orderId, Long volunteerId) {
         RunOrder order = runOrderRepository.findById(orderId)
                 .orElseThrow(() -> new OrderNotFoundException("订单不存在，ID: " + orderId));

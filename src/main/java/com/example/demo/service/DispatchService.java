@@ -152,6 +152,12 @@ public class DispatchService {
                             .orElseThrow(() -> new IllegalArgumentException("订单不存在: " + orderId));
 
                     if (order.getStatus() != OrderStatus.PENDING_MATCH) {
+                        if (order.getStatus() == OrderStatus.PENDING_ACCEPT
+                                || order.getStatus() == OrderStatus.IN_PROGRESS
+                                || order.getStatus() == OrderStatus.DRIVER_EN_ROUTE
+                                || order.getStatus() == OrderStatus.DRIVER_ARRIVED) {
+                            throw new OrderPermissionException("ORDER_ALREADY_ACCEPTED", "订单已被其他志愿者接单");
+                        }
                         throw new OrderStatusException("订单状态不允许接单: " + order.getStatus());
                     }
 
@@ -258,6 +264,9 @@ public class DispatchService {
         }
         if (!Boolean.TRUE.equals(profile.getVerified())) {
             throw new OrderPermissionException("VOLUNTEER_NOT_VERIFIED", "请先完成志愿者认证");
+        }
+        if (!Boolean.TRUE.equals(profile.getIsAvailable())) {
+            throw new OrderPermissionException("VOLUNTEER_NOT_AVAILABLE", "当前您已关闭可服务状态，请先开启后再接单");
         }
         switch (action) {
             case ACCEPT -> {

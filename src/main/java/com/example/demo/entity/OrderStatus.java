@@ -14,6 +14,7 @@ package com.example.demo.entity;
  * IN_PROGRESS     → CANCELLED        （志愿者取消，记录为爽约）
  * DRIVER_EN_ROUTE → DRIVER_ARRIVED   （志愿者确认到达）
  * DRIVER_EN_ROUTE → REMATCHING       （志愿者取消，重新匹配）
+ * DRIVER_ARRIVED  → IN_PROGRESS      （志愿者确认开始服务）
  * DRIVER_ARRIVED  → REMATCHING       （志愿者取消，重新匹配）
  * DRIVER_EN_ROUTE → CANCELLED        （取消）
  * DRIVER_ARRIVED  → CANCELLED        （取消）

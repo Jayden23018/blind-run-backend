@@ -30,17 +30,20 @@ public class VolunteerService {
     private final UserRepository userRepository;
     private final FileStorageService fileStorageService;
     private final DispatchService dispatchService;
+    private final VolunteerLocationService volunteerLocationService;
 
     public VolunteerService(VolunteerProfileRepository volunteerProfileRepository,
                             VolunteerAvailableTimeRepository volunteerAvailableTimeRepository,
                             UserRepository userRepository,
                             FileStorageService fileStorageService,
-                            DispatchService dispatchService) {
+                            DispatchService dispatchService,
+                            VolunteerLocationService volunteerLocationService) {
         this.volunteerProfileRepository = volunteerProfileRepository;
         this.volunteerAvailableTimeRepository = volunteerAvailableTimeRepository;
         this.userRepository = userRepository;
         this.fileStorageService = fileStorageService;
         this.dispatchService = dispatchService;
+        this.volunteerLocationService = volunteerLocationService;
     }
 
     /**
@@ -66,7 +69,8 @@ public class VolunteerService {
                 profile.getVerificationStatus().name(),
                 slots,
                 profile.getAcceptsGuideDog(),
-                profile.getPaceRange()
+                profile.getPaceRange(),
+                Boolean.TRUE.equals(profile.getIsAvailable())
         );
     }
 
@@ -83,6 +87,10 @@ public class VolunteerService {
         profile.setName(request.getName());
         if (request.getAcceptsGuideDog() != null) profile.setAcceptsGuideDog(request.getAcceptsGuideDog());
         if (request.getPaceRange() != null) profile.setPaceRange(request.getPaceRange());
+        if (request.getIsAvailable() != null) {
+            profile.setIsAvailable(request.getIsAvailable());
+            volunteerLocationService.updateDispatchStatus(userId, request.getIsAvailable());
+        }
         volunteerProfileRepository.save(profile);
         dispatchService.evictProfileCache(userId);
 
@@ -143,6 +151,16 @@ public class VolunteerService {
                 .orElseThrow(() -> new ResourceNotFoundException("志愿者资料不存在"));
 
         return profile.getVerificationStatus().name();
+    }
+
+    /** 持久化可服务状态（由 dispatch-status 端点调用） */
+    @Transactional
+    public void setIsAvailable(Long userId, boolean isAvailable) {
+        VolunteerProfile profile = volunteerProfileRepository.findByUserId(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("志愿者资料不存在"));
+        profile.setIsAvailable(isAvailable);
+        volunteerProfileRepository.save(profile);
+        dispatchService.evictProfileCache(userId);
     }
 
     private void checkVolunteerRole(Long userId) {

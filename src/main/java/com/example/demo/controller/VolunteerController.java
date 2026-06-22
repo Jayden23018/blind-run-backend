@@ -94,6 +94,7 @@ public class VolunteerController {
     public ResponseEntity<?> updateDispatchStatus(@Valid @RequestBody DispatchStatusRequest request) {
         Long userId = SecurityUtils.getCurrentUserId();
         volunteerLocationService.updateDispatchStatus(userId, request.wantsDispatch());
+        volunteerService.setIsAvailable(userId, request.wantsDispatch());
         return ResponseEntity.ok(Map.of("success", true, "wantsDispatch", request.wantsDispatch()));
     }
 

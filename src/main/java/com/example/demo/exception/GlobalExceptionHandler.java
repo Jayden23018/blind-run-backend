@@ -23,10 +23,16 @@ public class GlobalExceptionHandler {
 
     /** 认证异常 → 400 */
     @ExceptionHandler(AuthException.class)
-    public ResponseEntity<Map<String, String>> handleAuthException(AuthException e) {
+    public ResponseEntity<Map<String, Object>> handleAuthException(AuthException e) {
+        if (e.getErrorCode() != null) {
+            return ResponseEntity
+                    .status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("success", false, "code", 400,
+                            "errorCode", e.getErrorCode(), "message", e.getMessage()));
+        }
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
-                .body(Map.of("error", e.getMessage()));
+                .body(Map.of("success", false, "code", 400, "message", e.getMessage()));
     }
 
     /** 资源未找到 → 404（旧格式） */
@@ -84,6 +90,15 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.FORBIDDEN)
                 .body(Map.of("success", false, "code", 403, "message", e.getMessage()));
+    }
+
+    /** 业务规则异常 → 422 */
+    @ExceptionHandler(BusinessException.class)
+    public ResponseEntity<Map<String, Object>> handleBusinessException(BusinessException e) {
+        return ResponseEntity
+                .status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(Map.of("success", false, "code", 422,
+                        "errorCode", e.getErrorCode(), "message", e.getMessage()));
     }
 
     /** 参数校验异常 → 400 */

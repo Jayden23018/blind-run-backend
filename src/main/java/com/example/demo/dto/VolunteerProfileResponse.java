@@ -17,4 +17,5 @@ public class VolunteerProfileResponse {
     private List<VolunteerAvailableTimeSlot> availableTimeSlots;
     private Boolean acceptsGuideDog;
     private PacePreference paceRange;
+    private Boolean isAvailable;
 }
