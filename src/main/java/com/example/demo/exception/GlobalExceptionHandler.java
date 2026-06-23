@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -172,6 +173,20 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(Map.of("success", false, "code", 500, "message", "服务器内部错误，请稍后重试"));
+    }
+
+    /**
+     * 请求的端点/资源不存在 → 404（统一结构）
+     * Spring Boot 3 对不存在的路径抛 NoResourceFoundException，必须显式捕获并返回 404；
+     * 否则会被下方兜底 {@link #handleGenericException} 错误地返回 500「服务器内部错误」，
+     * 把"端点打错/不存在"伪装成服务器崩溃，误导前端无法区分。
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleNoResourceFound(NoResourceFoundException e) {
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(Map.of("success", false, "code", 404,
+                        "errorCode", "NOT_FOUND", "message", "请求的资源不存在"));
     }
 
     @ExceptionHandler(Exception.class)
