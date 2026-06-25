@@ -14,4 +14,5 @@ public record AvailableOrderResponse(
         Integer expectedDurationMinutes,
         PacePreference pacePreference,
         Boolean hasGuideDogThisRun,
-        String specialNotes) {}
+        String specialNotes,
+        boolean needsHelp) {}

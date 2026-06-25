@@ -3,6 +3,7 @@ package com.example.demo.service;
 import com.example.demo.entity.*;
 import com.example.demo.event.DispatchAcceptedEvent;
 import com.example.demo.event.OrderCreatedEvent;
+import com.example.demo.exception.BusinessException;
 import com.example.demo.exception.OrderNotFoundException;
 import com.example.demo.exception.OrderPermissionException;
 import com.example.demo.exception.OrderStatusException;
@@ -154,6 +155,43 @@ public class OrderLifecycleService {
         notifyBlindUser(order.getBlindUser().getId(), "DRIVER_ARRIVED", volunteerId);
 
         log.info("志愿者 {} 已到达，订单ID={}", volunteerId, orderId);
+    }
+
+    /** 志愿者主动认领全城广播求助订单（NEEDS_HELP → IN_PROGRESS） */
+    @Transactional
+    public void acceptHelpOrder(Long orderId, Long volunteerId) {
+        VolunteerProfile profile = volunteerProfileRepository.findByUserId(volunteerId)
+                .orElseThrow(() -> new OrderPermissionException("VOLUNTEER_NOT_VERIFIED", "请先完成志愿者认证"));
+        if (profile.getRegistrationStep() != RegistrationStep.STEP_4_COMPLETED) {
+            throw new OrderPermissionException("VOLUNTEER_NOT_REGISTERED", "请先完成志愿者注册流程");
+        }
+        if (!Boolean.TRUE.equals(profile.getVerified())) {
+            throw new OrderPermissionException("VOLUNTEER_NOT_VERIFIED", "请先完成志愿者认证");
+        }
+        if (!Boolean.TRUE.equals(profile.getIsAvailable())) {
+            throw new OrderPermissionException("VOLUNTEER_NOT_AVAILABLE", "当前您已关闭可服务状态");
+        }
+
+        RunOrder order = runOrderRepository.findById(orderId)
+                .orElseThrow(() -> new OrderNotFoundException("订单不存在，ID: " + orderId));
+
+        if (order.getStatus() != OrderStatus.NEEDS_HELP) {
+            throw new OrderStatusException("该订单不在求助状态，可能已被其他志愿者认领");
+        }
+        if (!order.getPlannedStartTime().isAfter(LocalDateTime.now())) {
+            throw new BusinessException("ORDER_EXPIRED", "该求助订单已过预约时间，无法认领");
+        }
+
+        String oldStatus = order.getStatus().name();
+        order.setVolunteer(userRepository.getReferenceById(volunteerId));
+        order.setStatus(OrderStatus.IN_PROGRESS);
+        order.setAcceptedAt(LocalDateTime.now());
+        runOrderRepository.save(order);
+
+        statusLogService.logStatusChange(orderId, oldStatus, "IN_PROGRESS", volunteerId, "志愿者主动认领求助订单");
+        notifyBlindUser(order.getBlindUser().getId(), "VOLUNTEER_ACCEPTED", volunteerId);
+
+        log.info("志愿者 {} 主动认领求助订单 {}", volunteerId, orderId);
     }
 
     @Transactional

@@ -745,6 +745,37 @@ paths:
             'application/json':
               schema:
                 type: object
+  /api/orders/{id}/accept-help:
+    post:
+      tags:
+      - order-controller
+      summary: 志愿者主动认领全城广播求助订单（NEEDS_HELP → IN_PROGRESS）
+      description: |
+        当串行派单三轮全部失败后，订单进入 NEEDS_HELP 状态并向全城在线志愿者广播。
+        任意认证志愿者可通过此接口主动认领。认领成功后订单直接进入 IN_PROGRESS。
+        前端可通过 AvailableOrderResponse.needsHelp=true 识别此类订单并展示特殊样式。
+      operationId: acceptHelpOrder
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: 认领成功
+          content:
+            'application/json':
+              schema:
+                type: object
+        '403':
+          description: 志愿者未认证 / 未开启可服务状态
+        '409':
+          description: 订单已被其他志愿者认领
+        '422':
+          description: 订单已过期（ORDER_EXPIRED）
   /api/orders/{id}/start:
     post:
       tags:
@@ -1305,7 +1336,36 @@ paths:
           content:
             'application/json':
               schema:
-                type: object
+                type: array
+                items:
+                  type: object
+                  properties:
+                    orderId:
+                      type: integer
+                      format: int64
+                    startAddress:
+                      type: string
+                    distanceKm:
+                      type: number
+                    plannedStart:
+                      type: string
+                      format: date-time
+                    plannedEnd:
+                      type: string
+                      format: date-time
+                    blindUserPhone:
+                      type: string
+                    expectedDurationMinutes:
+                      type: integer
+                    pacePreference:
+                      type: string
+                    hasGuideDogThisRun:
+                      type: boolean
+                    specialNotes:
+                      type: string
+                    needsHelp:
+                      type: boolean
+                      description: true 表示全城广播求助订单，前端应展示特殊样式并提供"主动认领"入口
   /api/cs/emergency-events:
     get:
       tags:
@@ -1716,6 +1776,7 @@ components:
           - CANCELLED
           - REMATCHING
           - NO_VOLUNTEER
+          - NEEDS_HELP
         message:
           type: string
     CallInitiateRequest:
@@ -1927,6 +1988,7 @@ components:
           - CANCELLED
           - REMATCHING
           - NO_VOLUNTEER
+          - NEEDS_HELP
         startAddress:
           type: string
         plannedStart:

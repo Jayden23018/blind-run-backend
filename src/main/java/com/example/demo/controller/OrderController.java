@@ -125,6 +125,14 @@ public class OrderController {
         return ResponseEntity.ok(Map.of("success", true, "orderId", id));
     }
 
+    /** 志愿者主动认领全城广播求助订单（NEEDS_HELP → IN_PROGRESS） */
+    @PostMapping("/{id}/accept-help")
+    public ResponseEntity<?> acceptHelpOrder(@PathVariable @Min(1) Long id) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        orderLifecycleService.acceptHelpOrder(id, userId);
+        return ResponseEntity.ok(Map.of("success", true, "orderId", id));
+    }
+
     /** 志愿者确认开始服务（DRIVER_ARRIVED → IN_PROGRESS） */
     @PostMapping("/{id}/start")
     public ResponseEntity<?> startService(@PathVariable @Min(1) Long id) {

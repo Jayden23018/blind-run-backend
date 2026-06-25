@@ -150,6 +150,25 @@ public class NotificationService {
     }
 
     /**
+     * 向单个志愿者推送全城求助广播（NEEDS_HELP_BROADCAST）
+     * 由 DispatchService.broadcastHelpNeeded 逐个调用，避免与 VolunteerLocationService 循环依赖
+     */
+    public void sendHelpBroadcastToVolunteer(Long volunteerId, RunOrder order) {
+        try {
+            Map<String, Object> msg = buildEnvelope("NEEDS_HELP_BROADCAST");
+            msg.put("orderId", order.getId());
+            msg.put("startAddress", order.getStartAddress());
+            msg.put("plannedStart", order.getPlannedStartTime().toString());
+            msg.put("plannedEnd", order.getPlannedEndTime().toString());
+            msg.put("message", "有盲人用户在 " + order.getStartAddress() + " 附近急需帮助，系统已无法自动匹配，如果你方便请主动认领");
+            msg.put("priority", NotificationPriority.HIGH.name());
+            sessionRegistry.sendToUser(volunteerId, objectMapper.writeValueAsString(msg));
+        } catch (Exception e) {
+            log.warn("向志愿者 {} 推送求助广播失败: {}", volunteerId, e.getMessage());
+        }
+    }
+
+    /**
      * 发送 App 内通知（WebSocket）
      */
     public void sendAppNotification(Long userId, String title, String body) {

@@ -438,24 +438,44 @@ public class DispatchService {
     }
 
     /**
-     * 无匹配结果：设置订单为 NO_VOLUNTEER 并通知盲人
+     * 无匹配结果：进入全城广播求助（NEEDS_HELP）
+     * 向所有在线且 wantsDispatch=true 的认证志愿者广播，任意一人可主动认领
      */
     @Transactional
     void handleNoMatch(RunOrder order) {
-        order.setStatus(OrderStatus.NO_VOLUNTEER);
+        order.setStatus(OrderStatus.NEEDS_HELP);
         order.setDispatchCurrentVolunteerId(null);
-        order.setCancelledBy(CancelledBy.SYSTEM);
         runOrderRepository.save(order);
         clearDispatchState(order.getId());
 
-        notificationService.sendNotification(
+        // 通知盲人：正在全城广播求助
+        notificationService.sendAppNotification(
                 order.getBlindUser().getId(),
-                "NO_VOLUNTEER_AVAILABLE",
-                TargetRole.BLIND_USER,
-                Map.of("orderId", String.valueOf(order.getId()))
+                "暂时未能匹配到志愿者",
+                "我们已向全城志愿者发出求助，如有志愿者方便会主动联系您，请耐心等待"
         );
 
-        log.info("订单 {} 派单失败：无合适志愿者", order.getId());
+        // 向全城在线志愿者广播
+        broadcastHelpNeeded(order);
+
+        log.info("订单 {} 派单失败，已进入全城广播求助，通知 {} 名在线志愿者",
+                order.getId(), volunteerLocationService.getOnlineVolunteerLocations().size());
+    }
+
+    /** 向所有在线且接单中的志愿者广播求助 */
+    private void broadcastHelpNeeded(RunOrder order) {
+        List<Map<String, Object>> candidates = volunteerLocationService.getOnlineVolunteerLocations()
+                .stream()
+                .filter(loc -> !Boolean.FALSE.equals(loc.get("wantsDispatch")))
+                .toList();
+
+        for (Map<String, Object> loc : candidates) {
+            Object id = loc.get("userId");
+            if (id instanceof Number n) {
+                notificationService.sendHelpBroadcastToVolunteer(n.longValue(), order);
+            }
+        }
+        log.info("订单 {} 求助广播已推送给 {} 名在线志愿者", order.getId(), candidates.size());
     }
 
     // ===== 推送通知 =====

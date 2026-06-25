@@ -22,6 +22,8 @@ package com.example.demo.entity;
  * REMATCHING      → IN_PROGRESS      （新志愿者直接接单）
  * REMATCHING      → CANCELLED        （盲人取消）
  * REMATCHING      → NO_VOLUNTEER     （超时无人接单 — 预留终态）
+ * NEEDS_HELP      → IN_PROGRESS      （志愿者主动认领）
+ * NEEDS_HELP      → NO_VOLUNTEER     （到期无人认领）
  */
 public enum OrderStatus {
     PENDING_MATCH,      // 待匹配：订单刚创建，等待系统匹配志愿者
@@ -32,5 +34,6 @@ public enum OrderStatus {
     COMPLETED,          // 已完成：服务已完成
     CANCELLED,          // 已取消（盲人主动取消 / 志愿者在 IN_PROGRESS 阶段取消）
     REMATCHING,         // 重新匹配中：志愿者取消后等待新志愿者
-    NO_VOLUNTEER        // 超时无人接单（预留终态）
+    NO_VOLUNTEER,       // 超时无人接单（预留终态）
+    NEEDS_HELP          // 全城广播求助：派单三轮失败后进入，任意认证志愿者可主动认领
 }
