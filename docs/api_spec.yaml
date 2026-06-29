@@ -43,6 +43,32 @@ paths:
             'application/json':
               schema:
                 type: object
+  /api/volunteer/dispatch-summary:
+    get:
+      tags:
+      - volunteer-controller
+      operationId: getDispatchSummary
+      summary: 志愿者首页聚合数据（接单资格/在线位置/覆盖范围/时段/评分/订单）
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseObject'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/VolunteerDispatchSummaryResponse'
+        '401':
+          description: 未认证
+        '403':
+          description: 非志愿者角色
+        '404':
+          description: 志愿者资料不存在
   /api/users/{userId}/emergency-contacts/{contactId}:
     put:
       tags:
@@ -2090,6 +2116,133 @@ components:
           - MODERATE
           - FAST
           - NO_PREFERENCE
+    VolunteerDispatchSummaryResponse:
+      type: object
+      description: 志愿者首页聚合响应
+      properties:
+        canDispatch:
+          type: boolean
+          description: 系统判定当前是否可被派单
+        notAvailableReasons:
+          type: array
+          description: 不可接单的结构化原因（canDispatch=true 时为空数组）
+          items:
+            $ref: '#/components/schemas/DispatchBlockReason'
+        wantsDispatch:
+          type: boolean
+          description: 用户接单开关状态（用户意愿）
+        isOnline:
+          type: boolean
+          description: WebSocket 在线状态
+        lastLat:
+          type: number
+          format: double
+          nullable: true
+          description: 最近位置纬度（离线时为 null）
+        lastLng:
+          type: number
+          format: double
+          nullable: true
+          description: 最近位置经度（离线时为 null）
+        lastLocationAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: 最近位置更新时间（离线时为 null）
+        coverageRadiusKm:
+          type: integer
+          description: 可接单覆盖圆半径（km，当前固定 10）
+        isWithinServiceTime:
+          type: boolean
+          description: 当前是否在可服务时段内（仅 UI 提示，不阻断接单）
+        availableTimeSlots:
+          type: array
+          items:
+            $ref: '#/components/schemas/VolunteerAvailableTimeSlot'
+        avgRating:
+          type: number
+          format: double
+          nullable: true
+          description: 平均评分 1.0-5.0（null=无评价）
+        totalRatings:
+          type: integer
+        totalDispatched:
+          type: integer
+        totalAccepted:
+          type: integer
+        totalDeclined:
+          type: integer
+          description: 累计拒单次数（不含超时）
+        totalTimeout:
+          type: integer
+          description: 累计响应超时次数（不计入接单率分母）
+        acceptanceRate:
+          type: number
+          format: double
+          nullable: true
+          description: 接单率 0.0-1.0（null=无派单记录）
+        activeOrders:
+          type: array
+          items:
+            $ref: '#/components/schemas/VolunteerDispatchActiveOrder'
+        recentOrders:
+          type: array
+          items:
+            $ref: '#/components/schemas/VolunteerDispatchRecentOrder'
+    VolunteerDispatchActiveOrder:
+      type: object
+      properties:
+        orderId:
+          type: integer
+          format: int64
+        status:
+          type: string
+          description: 订单状态枚举名（IN_PROGRESS/DRIVER_EN_ROUTE/DRIVER_ARRIVED）
+        plannedStartTime:
+          type: string
+          format: date-time
+        plannedEndTime:
+          type: string
+          format: date-time
+        startAddress:
+          type: string
+        blindName:
+          type: string
+        blindPhoneMasked:
+          type: string
+          description: 盲人手机号（已脱敏，如 138****0001）
+        acceptedAt:
+          type: string
+          format: date-time
+          nullable: true
+    VolunteerDispatchRecentOrder:
+      type: object
+      properties:
+        orderId:
+          type: integer
+          format: int64
+        status:
+          type: string
+        plannedStartTime:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: 仅 COMPLETED 有值
+        rating:
+          type: integer
+          nullable: true
+          description: 该订单评分 1-5，无评价为 null
+    DispatchBlockReason:
+      type: string
+      description: 不可接单原因（前端引导优先级 REGISTRATION_INCOMPLETE>NOT_VERIFIED>DISPATCH_DISABLED>OFFLINE）
+      enum:
+      - DISPATCH_DISABLED
+      - NOT_VERIFIED
+      - REGISTRATION_INCOMPLETE
+      - OFFLINE
   securitySchemes:
     Bearer:
       type: http

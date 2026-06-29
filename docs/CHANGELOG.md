@@ -1,5 +1,28 @@
 # 变更日志
 
+## [Unreleased]
+
+### 新增
+
+- **志愿者首页聚合接口 `GET /api/volunteer/dispatch-summary`**：一次返回首页所需的全部数据，前端无需多发请求拼装。
+  - 接单资格：`canDispatch` + 结构化不可接单原因 `notAvailableReasons`（`DISPATCH_DISABLED`/`NOT_VERIFIED`/`REGISTRATION_INCOMPLETE`/`OFFLINE`，前端可精确引导）+ `wantsDispatch` 开关状态
+  - 在线与位置：`isOnline` + `lastLat`/`lastLng`/`lastLocationAt`（离线时为 null，前端据此决定是否画范围圆）
+  - 覆盖范围与时段：`coverageRadiusKm`（当前固定 10）+ `isWithinServiceTime` + `availableTimeSlots`
+  - 评分与统计：`avgRating`/`totalRatings`/`totalDispatched`/`totalAccepted`/`totalDeclined`/`totalTimeout`/`acceptanceRate`
+  - 订单：`activeOrders`（活跃订单全量）+ `recentOrders`（最近 5 条）
+  - 盲人手机号一律脱敏；近期评分走批量查询防 N+1
+  - ⚠️ **本项目无积分系统**，本接口不返回积分字段
+  - 完整字段说明见 [`docs/volunteer-dispatch-summary.md`](volunteer-dispatch-summary.md)，前端交接以此为准
+
+### 文档
+
+- **新增 Claude Code + Postman 协同测试工作流**：[`docs/claude-code-postman-workflow.md`](claude-code-postman-workflow.md)。覆盖三个核心场景:
+  - `/postman:sync` —— `api_spec.yaml` 改动后自动同步到 Postman collection(避免手动导入)
+  - `/postman:test` —— 跑 collection + 失败归因(关联 git diff 代码变更给修复建议)
+  - `/postman:security` —— 针对本项目 JWT 多角色 / 限流 / 手机号脱敏 / Token 黑名单 / CS 登录锁定的 OWASP 专项审计
+  - 含订单状态机串联测试示例、4 角色 token 获取模板、Redis key 速查、错误码映射、生产环境红线(禁破坏性测试)
+- 文档第 2.3 节收录社区 [springboot-skills-marketplace](https://github.com/a-pavithraa/springboot-skills-marketplace) 插件(可选;本项目已有 `everything-claude-code` 覆盖 `java-reviewer`/`security-reviewer`/`code-reviewer`,`spring-data-jpa` 专项可按需补装)。
+
 ## [1.5.0] - 2026-06-22
 
 ### 前端联调反馈修复（6 项）

@@ -268,6 +268,16 @@ curl -X POST http://localhost:8081/api/orders/{orderId}/respond \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"action":"ACCEPT"}'
+
+# 10. 首页聚合数据（一次拿全：接单资格/在线位置/覆盖范围/时段/评分/活跃订单/近期记录）
+curl http://localhost:8081/api/volunteer/dispatch-summary \
+  -H "Authorization: Bearer <token>"
+
+# 11. 切换接单开关（开/关）
+curl -X PUT http://localhost:8081/api/volunteer/dispatch-status \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"wantsDispatch": false}'
 ```
 
 ---

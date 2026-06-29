@@ -216,7 +216,9 @@ POST /api/volunteer/registration/step2/id-card
 | PUT | `/api/volunteer/profile` | 更新志愿者资料 |
 | POST | `/api/volunteer/verification` | 上传资质证件（multipart） |
 | GET | `/api/volunteer/verification/status` | 获取认证状态 |
-| POST | `/api/volunteer/location` | 上报位置 |
+| GET | `/api/volunteer/dispatch-summary` | **首页聚合数据**（接单资格/在线位置/覆盖范围/时段/评分/活跃订单/近期记录，详见 [`volunteer-dispatch-summary.md`](volunteer-dispatch-summary.md)） |
+| PUT | `/api/volunteer/dispatch-status` | 切换接单开关 `{wantsDispatch:bool}` |
+| POST | `/api/volunteer/location` | 上报位置（@Deprecated，改用 WebSocket） |
 
 **VolunteerProfileUpdateRequest**:
 ```json

@@ -1,9 +1,11 @@
 package com.example.demo.controller;
 
+import com.example.demo.dto.ApiResponse;
 import com.example.demo.dto.DispatchStatusRequest;
 import com.example.demo.dto.VolunteerProfileResponse;
 import com.example.demo.dto.VolunteerProfileUpdateRequest;
 import com.example.demo.dto.VolunteerLocationRequest;
+import com.example.demo.dto.volunteer.VolunteerDispatchSummaryResponse;
 import com.example.demo.service.VolunteerLocationService;
 import com.example.demo.service.VolunteerService;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -24,7 +26,9 @@ import java.util.Map;
  * PUT    /api/volunteer/profile                → 更新志愿者资料
  * POST   /api/volunteer/verification           → 上传资质证件
  * GET    /api/volunteer/verification/status     → 获取认证状态
- * POST   /api/volunteer/location               → 上报实时位置
+ * GET    /api/volunteer/dispatch-summary       → 首页聚合数据（接单资格/在线位置/覆盖范围/时段/评分/订单）
+ * PUT    /api/volunteer/dispatch-status        → 切换接单开关
+ * POST   /api/volunteer/location               → 上报实时位置（@Deprecated，改用 WebSocket）
  */
 @RestController
 @RequestMapping("/api/volunteer")
@@ -84,6 +88,17 @@ public class VolunteerController {
         Long userId = SecurityUtils.getCurrentUserId();
         String status = volunteerService.getVerificationStatus(userId);
         return ResponseEntity.ok(Map.of("status", status));
+    }
+
+    /**
+     * 志愿者首页聚合数据：一次返回接单资格/在线位置/覆盖范围/可服务时段/评分统计/活跃订单/近期记录。
+     * GET /api/volunteer/dispatch-summary
+     */
+    @GetMapping("/dispatch-summary")
+    public ResponseEntity<ApiResponse<VolunteerDispatchSummaryResponse>> getDispatchSummary() {
+        Long userId = SecurityUtils.getCurrentUserId();
+        VolunteerDispatchSummaryResponse summary = volunteerService.getDispatchSummary(userId);
+        return ResponseEntity.ok(ApiResponse.ok(summary));
     }
 
     /**
