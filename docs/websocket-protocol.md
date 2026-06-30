@@ -245,6 +245,8 @@ NO_VOLUNTEER（无可用志愿者）
   "type": "NEW_ORDER",
   "orderId": 123,
   "startAddress": "朝阳公园南门",
+  "startLatitude": 39.9372,
+  "startLongitude": 116.4736,
   "distanceKm": 2.5,
   "plannedStart": "2026-05-23T14:00:00",
   "plannedEnd": "2026-05-23T15:00:00",
@@ -260,6 +262,8 @@ NO_VOLUNTEER（无可用志愿者）
 |------|------|------|------|
 | orderId | number | 是 | 订单 ID |
 | startAddress | string | 是 | 起点地址 |
+| startLatitude | number | 是 | 起点纬度（地图标点用） |
+| startLongitude | number | 是 | 起点经度（地图标点用） |
 | distanceKm | number | 是 | 志愿者到起点的距离（公里） |
 | plannedStart | string | 是 | 计划开始时间（ISO 格式） |
 | plannedEnd | string | 是 | 计划结束时间（ISO 格式） |

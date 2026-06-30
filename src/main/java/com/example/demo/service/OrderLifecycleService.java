@@ -175,6 +175,9 @@ public class OrderLifecycleService {
         order.setFinishedAt(LocalDateTime.now());
         runOrderRepository.save(order);
 
+        // 完成订单 → 志愿者完成次数 +1（区别于接单次数 totalAccepted）
+        volunteerProfileRepository.atomicIncrementCompleted(volunteerId);
+
         proximityService.clearProximityFlag(orderId);
         statusLogService.logStatusChange(orderId, oldStatus, "COMPLETED", volunteerId, "服务完成");
         notificationService.sendNotification(order.getBlindUser().getId(), "ORDER_COMPLETED", TargetRole.BLIND_USER, null);

@@ -4,6 +4,7 @@ import com.example.demo.entity.OrderStatus;
 import com.example.demo.entity.RunOrder;
 import com.example.demo.entity.TargetRole;
 import com.example.demo.repository.RunOrderRepository;
+import com.example.demo.repository.VolunteerProfileRepository;
 import com.example.demo.service.NotificationService;
 import com.example.demo.service.ProximityService;
 import com.example.demo.service.SchedulerLockService;
@@ -28,17 +29,20 @@ public class OrderTimeoutScheduler {
     private final NotificationService notificationService;
     private final ProximityService proximityService;
     private final SchedulerLockService schedulerLockService;
+    private final VolunteerProfileRepository volunteerProfileRepository;
 
     public OrderTimeoutScheduler(RunOrderRepository runOrderRepository,
                                   com.example.demo.service.OrderStatusLogService statusLogService,
                                   NotificationService notificationService,
                                   ProximityService proximityService,
-                                  SchedulerLockService schedulerLockService) {
+                                  SchedulerLockService schedulerLockService,
+                                  VolunteerProfileRepository volunteerProfileRepository) {
         this.runOrderRepository = runOrderRepository;
         this.statusLogService = statusLogService;
         this.notificationService = notificationService;
         this.proximityService = proximityService;
         this.schedulerLockService = schedulerLockService;
+        this.volunteerProfileRepository = volunteerProfileRepository;
     }
 
     @Scheduled(fixedRate = 60000)
@@ -58,6 +62,10 @@ public class OrderTimeoutScheduler {
                 String oldStatus = fullOrder.getStatus().name();
                 fullOrder.setStatus(OrderStatus.COMPLETED);
                 fullOrder.setFinishedAt(LocalDateTime.now());
+                // 超时自动完成 → 志愿者完成次数 +1（与手动 finishOrder 一致）
+                if (fullOrder.getVolunteer() != null) {
+                    volunteerProfileRepository.atomicIncrementCompleted(fullOrder.getVolunteer().getId());
+                }
                 statusLogService.logStatusChange(fullOrder.getId(), oldStatus, "COMPLETED", null, "超时自动完成");
 
                 // 清除邻近感知标记

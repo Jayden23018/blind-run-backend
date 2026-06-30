@@ -99,6 +99,8 @@ public class NotificationService {
             Map<String, Object> msg = buildEnvelope("NEW_ORDER");
             msg.put("orderId", order.getId());
             msg.put("startAddress", order.getStartAddress());
+            msg.put("startLatitude", order.getStartLatitude());
+            msg.put("startLongitude", order.getStartLongitude());
             msg.put("distanceKm", Math.round(distanceKm * 10.0) / 10.0);
             msg.put("plannedStart", order.getPlannedStartTime().toString());
             msg.put("plannedEnd", order.getPlannedEndTime().toString());

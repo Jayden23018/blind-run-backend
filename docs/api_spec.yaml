@@ -2170,6 +2170,10 @@ components:
           type: integer
         totalAccepted:
           type: integer
+          description: 累计接单次数（点了 ACCEPT 就算，含接了没跑完的）
+        totalCompleted:
+          type: integer
+          description: 累计完成订单次数（订单走到 COMPLETED 才算）
         totalDeclined:
           type: integer
           description: 累计拒单次数（不含超时）
@@ -2235,6 +2239,12 @@ components:
           type: integer
           nullable: true
           description: 该订单评分 1-5，无评价为 null
+        startAddress:
+          type: string
+          description: 起跑点文字地址
+        blindName:
+          type: string
+          description: 盲人姓名
     DispatchBlockReason:
       type: string
       description: 不可接单原因（前端引导优先级 REGISTRATION_INCOMPLETE>NOT_VERIFIED>DISPATCH_DISABLED>OFFLINE）

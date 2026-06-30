@@ -4,6 +4,22 @@
 
 ### 新增
 
+- **`NEW_ORDER` WebSocket 消息新增 `startLatitude`/`startLongitude`**：派单通知现在带订单起跑点经纬度，前端可在地图上标记订单位置（订单实体本就有这俩字段，必填）。
+- **`GET /api/volunteer/dispatch-summary` 新增 `totalCompleted` 字段**：累计**完成**订单次数（订单走到 COMPLETED 才算）。
+  - ⚠️ 与 `totalAccepted`（接单次数）区分：`totalAccepted` 是点了 ACCEPT 就算（含接了没跑完的），`totalCompleted` 才是真正完成数。
+  - 新增 DB 列 `volunteer_profile.total_completed`；**生产部署前必须先执行迁移 SQL**（加列 + 按历史 COMPLETED 订单回填），否则 `ddl-auto=validate` 启动失败：
+    ```sql
+    ALTER TABLE blind_running.volunteer_profile ADD COLUMN total_completed INT NOT NULL DEFAULT 0;
+    UPDATE volunteer_profile vp SET total_completed =
+      (SELECT COUNT(*) FROM run_order WHERE volunteer_id = vp.user_id AND status = 'COMPLETED');
+    ```
+  - 手动完成（finishOrder）+ 超时自动完成（autoComplete）两个入口都 +1。
+- **`dispatch-summary` 的 `recentOrders[]` 新增 `startAddress` + `blindName`**：每条近期记录现在带起跑点地址和盲人姓名。
+
+### 明确不做
+
+- **积分系统（`pointsBalance`/`pointsDelta`）**：项目当前无积分系统，`dispatch-summary` 与 `recentOrders` 均**不返回**积分字段。前端首页暂不展示积分，待产品定义积分规则后单独评估。
+
 - **志愿者首页聚合接口 `GET /api/volunteer/dispatch-summary`**：一次返回首页所需的全部数据，前端无需多发请求拼装。
   - 接单资格：`canDispatch` + 结构化不可接单原因 `notAvailableReasons`（`DISPATCH_DISABLED`/`NOT_VERIFIED`/`REGISTRATION_INCOMPLETE`/`OFFLINE`，前端可精确引导）+ `wantsDispatch` 开关状态
   - 在线与位置：`isOnline` + `lastLat`/`lastLng`/`lastLocationAt`（离线时为 null，前端据此决定是否画范围圆）

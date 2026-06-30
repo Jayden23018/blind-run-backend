@@ -73,6 +73,14 @@ public interface VolunteerProfileRepository extends JpaRepository<VolunteerProfi
     void atomicIncrementTimeoutStats(@Param("userId") Long userId);
 
     /**
+     * 原子自增完成订单次数（订单走到 COMPLETED 时调用，手动完成 + 超时自动完成两个入口都用它）
+     */
+    @Modifying
+    @Query(value = "UPDATE volunteer_profile SET total_completed = COALESCE(total_completed, 0) + 1 WHERE user_id = :userId",
+            nativeQuery = true)
+    void atomicIncrementCompleted(@Param("userId") Long userId);
+
+    /**
      * 原子更新评分（C6 修复：native query + ROUND）
      *
      * 公式：newAvg = ROUND((oldAvg * oldTotal + rating) / (oldTotal + 1), 2)

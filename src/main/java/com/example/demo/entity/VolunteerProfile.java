@@ -139,6 +139,10 @@ public class VolunteerProfile {
     @Column(name = "total_accepted")
     private Integer totalAccepted = 0;
 
+    /** 累计完成订单次数（订单走到 COMPLETED 才算，区别于 totalAccepted 接单次数：接了但中途取消/没跑完不计入） */
+    @Column(name = "total_completed")
+    private Integer totalCompleted = 0;
+
     /** 累计主动拒绝次数（V1：仅 DECLINE，不含超时；超时单独计 totalTimeout） */
     @Column(name = "total_declined")
     private Integer totalDeclined = 0;

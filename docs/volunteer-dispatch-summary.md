@@ -108,7 +108,8 @@
 | `avgRating` | number | 是 | 平均评分 1.0-5.0。**null = 尚无评价** |
 | `totalRatings` | int | 否 | 累计评价数（默认 0） |
 | `totalDispatched` | int | 否 | 累计被派单次数 |
-| `totalAccepted` | int | 否 | 累计接单次数 |
+| `totalAccepted` | int | 否 | 累计**接单**次数（点了 ACCEPT 就算，含接了没跑完的） |
+| `totalCompleted` | int | 否 | 累计**完成**订单次数（订单走到 COMPLETED 才算） |
 | `totalDeclined` | int | 否 | 累计拒单次数（仅 DECLINE，**不含超时**） |
 | `totalTimeout` | int | 否 | 累计响应超时次数（30s 未响应，**不计入接单率分母**） |
 | `acceptanceRate` | number | 是 | 接单率 0.0-1.0。**null = 尚无派单记录** |
@@ -140,6 +141,8 @@
 | `plannedStartTime` | string(datetime) | 否 | 计划开始时间 |
 | `completedAt` | string(datetime) | 是 | 完成时间（仅 `COMPLETED` 有值，否则 null） |
 | `rating` | int | 是 | 该订单收到的评分 1-5，**无评价为 null** |
+| `startAddress` | string | 否 | 起跑点文字地址 |
+| `blindName` | string | 否 | 盲人姓名 |
 
 ---
 

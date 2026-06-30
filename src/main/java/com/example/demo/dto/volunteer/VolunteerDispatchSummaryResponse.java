@@ -71,8 +71,10 @@ public class VolunteerDispatchSummaryResponse {
     private int totalRatings;
     /** 累计被派单次数 */
     private int totalDispatched;
-    /** 累计接单次数 */
+    /** 累计接单次数（点了 ACCEPT 就算，含接了没跑完的） */
     private int totalAccepted;
+    /** 累计完成订单次数（订单走到 COMPLETED 才算，区别于 totalAccepted） */
+    private int totalCompleted;
     /** 累计拒单次数（仅 DECLINE，不含超时） */
     private int totalDeclined;
     /** 累计响应超时次数（不计入 acceptanceRate 分母） */

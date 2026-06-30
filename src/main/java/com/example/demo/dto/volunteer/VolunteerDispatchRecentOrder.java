@@ -24,4 +24,8 @@ public class VolunteerDispatchRecentOrder {
     private LocalDateTime completedAt;
     /** 该订单志愿者收到的评分（1-5），无评价为 null */
     private Integer rating;
+    /** 起跑点文字地址 */
+    private String startAddress;
+    /** 盲人姓名 */
+    private String blindName;
 }

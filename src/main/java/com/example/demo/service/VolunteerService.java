@@ -199,6 +199,7 @@ public class VolunteerService {
                 profile.getTotalRatings() == null ? 0 : profile.getTotalRatings(),
                 profile.getTotalDispatched() == null ? 0 : profile.getTotalDispatched(),
                 profile.getTotalAccepted() == null ? 0 : profile.getTotalAccepted(),
+                profile.getTotalCompleted() == null ? 0 : profile.getTotalCompleted(),
                 profile.getTotalDeclined() == null ? 0 : profile.getTotalDeclined(),
                 profile.getTotalTimeout() == null ? 0 : profile.getTotalTimeout(),
                 profile.getAcceptanceRate(),
@@ -241,14 +242,16 @@ public class VolunteerService {
         );
     }
 
-    /** RunOrder → 近期记录精简 DTO */
+    /** RunOrder → 近期记录精简 DTO（blindName 靠 @Transactional(readOnly=true) 维持 session 懒加载） */
     private VolunteerDispatchRecentOrder toRecentOrder(RunOrder o, Integer rating) {
         return new VolunteerDispatchRecentOrder(
                 o.getId(),
                 o.getStatus().name(),
                 o.getPlannedStartTime(),
                 o.getFinishedAt(),
-                rating
+                rating,
+                o.getStartAddress(),
+                o.getBlindUser().getName()
         );
     }
 
