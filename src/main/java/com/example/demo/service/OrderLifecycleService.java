@@ -26,7 +26,7 @@ import java.util.Map;
 /**
  * 订单生命周期服务 —— 状态机流转、超时处理、派单接受
  *
- * 状态机：PENDING_MATCH → PENDING_ACCEPT → IN_PROGRESS → DRIVER_EN_ROUTE → DRIVER_ARRIVED → COMPLETED
+ * 状态机：PENDING_MATCH → PENDING_ACCEPT → DRIVER_EN_ROUTE → DRIVER_ARRIVED → IN_PROGRESS → COMPLETED
  * 超时：REMATCHING（rematch）、PENDING_MATCH（match）、IN_PROGRESS overdue
  */
 @Slf4j
@@ -96,7 +96,7 @@ public class OrderLifecycleService {
 
         String oldStatus = order.getStatus().name();
         order.setVolunteer(userRepository.getReferenceById(volunteerId));
-        order.setStatus(OrderStatus.IN_PROGRESS);
+        order.setStatus(OrderStatus.PENDING_ACCEPT);
         order.setAcceptedAt(LocalDateTime.now());
         order.setRematchNotifyAt(null);
         order.setMatchNotifyAt(null);
@@ -104,7 +104,7 @@ public class OrderLifecycleService {
 
         String eventType = "REMATCHING".equals(oldStatus) ? "REMATCH_ACCEPTED" : "ORDER_ACCEPTED";
         notifyBlindUser(order.getBlindUser().getId(), eventType, volunteerId);
-        statusLogService.logStatusChange(orderId, oldStatus, "IN_PROGRESS", volunteerId, "志愿者接单");
+        statusLogService.logStatusChange(orderId, oldStatus, "PENDING_ACCEPT", volunteerId, "志愿者接单");
 
         log.info("志愿者 {} 已接单，订单ID={}，原状态={}", volunteerId, orderId, oldStatus);
     }
@@ -120,7 +120,7 @@ public class OrderLifecycleService {
         if (order.getVolunteer() == null || !order.getVolunteer().getId().equals(volunteerId)) {
             throw new OrderPermissionException("NOT_ORDER_PARTICIPANT", "只有接单的志愿者才能操作");
         }
-        if (order.getStatus() != OrderStatus.IN_PROGRESS) {
+        if (order.getStatus() != OrderStatus.PENDING_ACCEPT) {
             throw new OrderStatusException("当前订单状态不允许此操作");
         }
 
@@ -157,6 +157,28 @@ public class OrderLifecycleService {
     }
 
     @Transactional
+    public void startService(Long orderId, Long volunteerId) {
+        RunOrder order = runOrderRepository.findById(orderId)
+                .orElseThrow(() -> new OrderNotFoundException("订单不存在，ID: " + orderId));
+
+        if (order.getVolunteer() == null || !order.getVolunteer().getId().equals(volunteerId)) {
+            throw new OrderPermissionException("NOT_ORDER_PARTICIPANT", "只有接单的志愿者才能操作");
+        }
+        if (order.getStatus() != OrderStatus.DRIVER_ARRIVED) {
+            throw new OrderStatusException("当前订单状态不允许此操作");
+        }
+
+        String oldStatus = order.getStatus().name();
+        order.setStatus(OrderStatus.IN_PROGRESS);
+        runOrderRepository.save(order);
+
+        statusLogService.logStatusChange(orderId, oldStatus, "IN_PROGRESS", volunteerId, "志愿者确认开始服务");
+        notifyBlindUser(order.getBlindUser().getId(), "SERVICE_STARTED", volunteerId);
+
+        log.info("志愿者 {} 确认开始服务，订单ID={}", volunteerId, orderId);
+    }
+
+    @Transactional
     public void finishOrder(Long orderId, Long volunteerId) {
         RunOrder order = runOrderRepository.findById(orderId)
                 .orElseThrow(() -> new OrderNotFoundException("订单不存在，ID: " + orderId));
@@ -164,9 +186,7 @@ public class OrderLifecycleService {
         if (order.getVolunteer() == null || !order.getVolunteer().getId().equals(volunteerId)) {
             throw new OrderPermissionException("NOT_ORDER_PARTICIPANT", "只有接单的志愿者才能结束服务");
         }
-        if (order.getStatus() != OrderStatus.IN_PROGRESS
-                && order.getStatus() != OrderStatus.DRIVER_EN_ROUTE
-                && order.getStatus() != OrderStatus.DRIVER_ARRIVED) {
+        if (order.getStatus() != OrderStatus.IN_PROGRESS) {
             throw new OrderStatusException("订单不在服务中状态");
         }
 
@@ -202,7 +222,7 @@ public class OrderLifecycleService {
         if (isBlind) {
             if (status == OrderStatus.IN_PROGRESS || status == OrderStatus.DRIVER_EN_ROUTE
                     || status == OrderStatus.DRIVER_ARRIVED) {
-                throw new OrderPermissionException("ORDER_IN_PROGRESS", "服务进行中，如需结束请联系志愿者");
+                throw new OrderPermissionException("ORDER_IN_PROGRESS", "志愿者已出发或服务进行中，如需取消请联系志愿者");
             }
             if (status != OrderStatus.PENDING_MATCH && status != OrderStatus.PENDING_ACCEPT
                     && status != OrderStatus.REMATCHING) {
@@ -362,16 +382,13 @@ public class OrderLifecycleService {
         }
 
         order.setVolunteer(userRepository.getReferenceById(volunteerId));
-        order.setStatus(OrderStatus.IN_PROGRESS);
         order.setAcceptedAt(LocalDateTime.now());
         order.setMatchNotifyAt(null);
         runOrderRepository.save(order);
 
-        statusLogService.logStatusChange(orderId, OrderStatus.PENDING_ACCEPT.name(), "IN_PROGRESS",
-                volunteerId, "串行派单接单");
         notifyBlindUser(order.getBlindUser().getId(), "VOLUNTEER_ACCEPTED", volunteerId);
 
-        log.info("志愿者 {} 通过派单接单，订单 {} → IN_PROGRESS", volunteerId, orderId);
+        log.info("志愿者 {} 通过派单接单，订单 {} → PENDING_ACCEPT", volunteerId, orderId);
     }
 
     // ===== 私有辅助方法 =====

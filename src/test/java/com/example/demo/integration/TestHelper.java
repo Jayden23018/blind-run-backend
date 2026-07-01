@@ -240,6 +240,27 @@ public class TestHelper {
                 jsonEntity(token, "{\"action\":\"" + action + "\"}"), String.class);
     }
 
+    /** 志愿者确认出发 */
+    public void driverEnRoute(String token, Long orderId) {
+        ResponseEntity<String> response = rest.postForEntity(
+                "/api/orders/" + orderId + "/en-route", jsonEntity(token, null), String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    /** 志愿者确认到达 */
+    public void driverArrived(String token, Long orderId) {
+        ResponseEntity<String> response = rest.postForEntity(
+                "/api/orders/" + orderId + "/arrived", jsonEntity(token, null), String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    /** 志愿者确认开始服务（DRIVER_ARRIVED → IN_PROGRESS） */
+    public void startService(String token, Long orderId) {
+        ResponseEntity<String> response = rest.postForEntity(
+                "/api/orders/" + orderId + "/start-service", jsonEntity(token, null), String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
     /** 志愿者结束服务 */
     public void finishOrder(String token, Long orderId) {
         ResponseEntity<String> response = rest.postForEntity(
@@ -351,8 +372,12 @@ public class TestHelper {
         // 等待异步派单完成后，志愿者通过 /respond 接单
         Thread.sleep(500); // 等待异步 DispatchService 启动
         respondAccept(volToken, orderId);
-        // respondAccept 触发 @Async onDispatchAccepted，等待其将订单推进到 IN_PROGRESS
-        waitForOrderStatus(volToken, orderId, OrderStatus.IN_PROGRESS, 3);
+        // respondAccept 触发 @Async onDispatchAccepted，等待其将订单推进到 PENDING_ACCEPT，
+        // 再依次出发→到达→开始服务，与 iOS 对齐的状态机保持一致
+        waitForOrderStatus(volToken, orderId, OrderStatus.PENDING_ACCEPT, 3);
+        driverEnRoute(volToken, orderId);
+        driverArrived(volToken, orderId);
+        startService(volToken, orderId);
         finishOrder(volToken, orderId);
 
         return new FlowResult(blindToken, volToken, orderId);
@@ -371,8 +396,11 @@ public class TestHelper {
         // 等待异步派单完成后，志愿者通过 /respond 接单
         Thread.sleep(500); // 等待异步 DispatchService 启动
         respondAccept(volToken, orderId);
-        // 等待 onDispatchAccepted 完成状态迁移
-        waitForOrderStatus(volToken, orderId, OrderStatus.IN_PROGRESS, 3);
+        // 等待 onDispatchAccepted 完成状态迁移，再依次出发→到达→开始服务
+        waitForOrderStatus(volToken, orderId, OrderStatus.PENDING_ACCEPT, 3);
+        driverEnRoute(volToken, orderId);
+        driverArrived(volToken, orderId);
+        startService(volToken, orderId);
 
         return new FlowResult(blindToken, volToken, orderId);
     }

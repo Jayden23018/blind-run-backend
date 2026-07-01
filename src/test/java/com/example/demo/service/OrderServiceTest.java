@@ -127,7 +127,7 @@ class OrderServiceTest {
         assertThrows(IllegalArgumentException.class, () -> orderCreationService.createOrder(1L, request));
     }
 
-    /** 接单成功 → IN_PROGRESS（直接接单从 PENDING_MATCH 状态） */
+    /** 接单成功 → PENDING_ACCEPT（直接接单从 PENDING_MATCH 状态，待出发） */
     @Test
     void testAcceptOrderSuccess() {
         User blindUser = new User();
@@ -149,7 +149,7 @@ class OrderServiceTest {
 
         orderLifecycleService.acceptOrder(1001L, 2L);
 
-        assertEquals(OrderStatus.IN_PROGRESS, order.getStatus());
+        assertEquals(OrderStatus.PENDING_ACCEPT, order.getStatus());
         assertNotNull(order.getAcceptedAt());
     }
 
@@ -239,7 +239,7 @@ class OrderServiceTest {
         assertThrows(OrderStatusException.class, () -> orderLifecycleService.finishOrder(1001L, 2L));
     }
 
-    /** 从 REMATCHING 状态接单成功 → IN_PROGRESS，清除 rematchNotifyAt */
+    /** 从 REMATCHING 状态接单成功 → PENDING_ACCEPT，清除 rematchNotifyAt */
     @Test
     void testAcceptOrderFromRematching() {
         User blindUser = new User();
@@ -261,7 +261,7 @@ class OrderServiceTest {
 
         orderLifecycleService.acceptOrder(1001L, 2L);
 
-        assertEquals(OrderStatus.IN_PROGRESS, order.getStatus());
+        assertEquals(OrderStatus.PENDING_ACCEPT, order.getStatus());
         assertNotNull(order.getAcceptedAt());
         assertNull(order.getRematchNotifyAt());
         verify(notificationService).sendNotification(eq(1L), eq("REMATCH_ACCEPTED"), eq(TargetRole.BLIND_USER), any());

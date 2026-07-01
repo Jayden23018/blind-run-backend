@@ -47,9 +47,10 @@ import java.util.stream.Collectors;
  * POST   /api/orders/{id}/accept      → 志愿者接单
  * POST   /api/orders/{id}/reject      → 志愿者拒单
  * POST   /api/orders/{id}/respond     → 志愿者响应派单（串行派单专用）
- * POST   /api/orders/{id}/en-route    → 志愿者确认出发
- * POST   /api/orders/{id}/arrived     → 志愿者确认到达
- * POST   /api/orders/{id}/finish      → 志愿者结束服务
+ * POST   /api/orders/{id}/en-route       → 志愿者确认出发
+ * POST   /api/orders/{id}/arrived      → 志愿者确认到达
+ * POST   /api/orders/{id}/start-service → 志愿者确认开始服务
+ * POST   /api/orders/{id}/finish       → 志愿者结束服务
  * POST   /api/orders/{id}/cancel      → 取消订单
  * PUT    /api/orders/{id}/keep-waiting → 盲人继续等待
  * GET    /api/orders/available        → 附近可接订单列表
@@ -122,6 +123,14 @@ public class OrderController {
     public ResponseEntity<?> driverArrived(@PathVariable @Min(1) Long id) {
         Long userId = SecurityUtils.getCurrentUserId();
         orderLifecycleService.driverArrived(id, userId);
+        return ResponseEntity.ok(Map.of("success", true, "orderId", id));
+    }
+
+    /** 志愿者确认开始服务（DRIVER_ARRIVED → IN_PROGRESS） */
+    @PostMapping("/{id}/start-service")
+    public ResponseEntity<?> startService(@PathVariable @Min(1) Long id) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        orderLifecycleService.startService(id, userId);
         return ResponseEntity.ok(Map.of("success", true, "orderId", id));
     }
 

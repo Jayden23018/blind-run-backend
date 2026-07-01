@@ -7,7 +7,7 @@
 > - 新评审发现的问题，按优先级（P0 > P1 > P2）追加到「待处理」对应区块。
 > - 每条标注信息可信度：**【已确证】**（读代码/文档确认）或 **【⚠️ 待核实】**（概括，需进一步核实）。
 
-**最近更新**：2026-06-22（FE-1~6 前端联调反馈 6 项全部修复，见 [CHANGELOG 1.5.0](./CHANGELOG.md)）
+**最近更新**：2026-06-23（S10 生产部署漏 FE-1 迁移导致 crash-loop + 502，已修复）
 
 ---
 
@@ -15,7 +15,7 @@
 
 | 优先级 | 已解决 | 待处理 |
 |--------|--------|--------|
-| P0（影响核心功能/安全） | ✅ 4 / 4 | 0 |
+| P0（影响核心功能/安全） | ✅ 5 / 5 | 0 |
 | P1（重要，应修） | ✅ 14 / 14 | 1（SMS-A3：短信模板参数格式） |
 | P2（增强/优化） | ✅ 8 / 8 | 2（T2/T3，文档缺口） |
 
@@ -211,6 +211,22 @@
 - **理由**：生产不应由 Hibernate 自动改表（不可控、可能丢数据/改错）；validate 只校验不修改，安全。新增字段（如 V1 `total_timeout`）生产首次部署需确认列已存在（临时用 update 启动一次，或手动 ALTER）。
 - **涉及**：`application-prod.properties`、`CLAUDE.md`（ddl-auto 说明更正）。
 
+### [P0] S10 · 生产部署遗漏 FE-1 迁移导致 crash-loop + 全站 502 — `2026-06-23` 【已确证】
+
+- **问题**：v1.5.0 部署到生产时，FE-1 要求的 `ALTER TABLE volunteer_profile ADD COLUMN wants_dispatch` 迁移**未执行**（仅写在 CLAUDE.md 提示和 ISSUES FE-1 条目里，未进任何部署脚本/checklist）。生产 `ddl-auto=validate`（S9），Hibernate 启动校验发现 `VolunteerProfile.wants_dispatch` 实体字段在库中无对应列 → 抛 `SchemaManagementException: missing column [wants_dispatch] in table [volunteer_profile]` → 进程 exit 1。
+- **影响**：应用无法启动，systemd 触发**自动重启死循环**（日志显示 `restart counter is at 51`）。8081 端口无进程监听，Nginx 代理返回 **502 Bad Gateway**，公网 IP `http://47.114.113.171` 与 `:8081` 均不可访问。**迷惑点**：`systemctl status` 在 crash-loop 间隙显示 `active (running)`，造成"服务正常"的假象。
+- **方案**：在生产 MySQL 执行 FE-1 迁移 SQL：
+  ```sql
+  ALTER TABLE volunteer_profile ADD COLUMN wants_dispatch BOOLEAN NOT NULL DEFAULT TRUE;
+  ```
+  执行后 systemd 下次自动重启即成功：日志出现 `Tomcat started on port 8081` + `Started DemoApplication in 15.3s`；8081 直连 HTTP 200，Nginx 80 代理 HTTP 200，服务全量恢复。
+- **涉及**：生产数据库 `blind_running.volunteer_profile`（仅 DDL，无代码改动）。
+- **根因（流程缺陷）**：迁移 SQL 只存在于文档，没有进 `deploy.sh` 或独立 migration 脚本，部署时靠人工记忆，必然遗漏。
+- **教训与改进**：
+  1. **所有 prod `ALTER TABLE` 迁移必须固化进部署脚本**（`deploy.sh` 或独立 `db/migration/*.sql`），部署前自动幂等执行，不依赖人工手动跑 + CLAUDE.md 提示。
+  2. **systemd 防 crash-loop 伪装 running**：给 `blindrun.service` 加 `StartLimitIntervalSec=` / `StartLimitBurst=`（如 60s 内重启超 5 次进 failed 状态），避免 crash-loop 间歇性 running 掩盖"服务其实已死"。部署后用 `curl http://127.0.0.1:8081/` 验证返回非 502/000，不能只看 `systemctl status`。
+  3. **部署后健康检查**：deploy 流程末尾自动 `curl` 健康端点，失败即回滚/告警。
+
 ---
 
 ## ✅ 已解决 — 前端联调反馈（FE 系列，2026-06-22）
@@ -222,7 +238,7 @@
 - **问题**：前端反馈开启可服务状态后再次查询未生效。根因：后端无 `isAvailable` 字段，真正的接单开关 `wantsDispatch` 只存在 Redis（TTL 30s），不落库、`GET /profile` 不返回；Redis key 过期时 `updateDispatchStatus` 静默 return 丢失开关。
 - **方案**：`wantsDispatch` 落库到 `volunteer_profile` 表（默认 true）；`GET/PUT /profile` 读写；派单候选筛选 + 接单校验以 DB 为准；`updateDispatchStatus` 即使 Redis key 不存在也落库。
 - **涉及**：`VolunteerProfile`, `VolunteerProfileResponse`, `VolunteerProfileUpdateRequest`, `VolunteerService`, `VolunteerLocationService`, `DispatchService`
-- **⚠️ 迁移**：生产需 `ALTER TABLE volunteer_profile ADD COLUMN wants_dispatch BOOLEAN NOT NULL DEFAULT TRUE;`
+- **⚠️ 迁移**：生产需 `ALTER TABLE volunteer_profile ADD COLUMN wants_dispatch BOOLEAN NOT NULL DEFAULT TRUE;` → **2026-06-23 已执行**（详见 [S10](#p0-s10--生产部署遗漏-fe-1-迁移导致-crash-loop--全站-502--2026-06-23-已确证)；此前部署遗漏导致 crash-loop + 502）
 
 ### [P1] FE-2 · 接单失败缺统一错误码 — `2026-06-22` 【已确证】
 

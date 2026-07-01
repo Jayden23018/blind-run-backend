@@ -40,8 +40,8 @@ class MatchingTest extends BaseIntegrationTest {
         Thread.sleep(500); // 等待异步 DispatchService 启动
         testHelper.respondAccept(volToken, orderId);
 
-        // 6. 接单后状态应变为 IN_PROGRESS
-        assertThat(testHelper.getOrderStatus(blindToken, orderId)).isEqualTo(OrderStatus.IN_PROGRESS);
+        // 6. 接单后状态应变为 PENDING_ACCEPT（待出发，尚未开始服务）
+        assertThat(testHelper.getOrderStatus(blindToken, orderId)).isEqualTo(OrderStatus.PENDING_ACCEPT);
 
         System.out.println("✅ TC-MATCH-01 passed — 附近志愿者成功匹配");
     }
@@ -102,10 +102,10 @@ class MatchingTest extends BaseIntegrationTest {
 
         // 5. 最近的志愿者（vol1）可以接单
         testHelper.respondAccept(vol1, orderId);
-        Thread.sleep(500); // 等待 @Async onDispatchAccepted 将状态推进到 IN_PROGRESS
+        Thread.sleep(500); // 等待 @Async onDispatchAccepted 将状态推进到 PENDING_ACCEPT
 
-        // 6. 接单后状态变为 IN_PROGRESS
-        assertThat(testHelper.getOrderStatus(blindToken, orderId)).isEqualTo(OrderStatus.IN_PROGRESS);
+        // 6. 接单后状态变为 PENDING_ACCEPT（待出发，尚未开始服务）
+        assertThat(testHelper.getOrderStatus(blindToken, orderId)).isEqualTo(OrderStatus.PENDING_ACCEPT);
 
         System.out.println("✅ TC-MATCH-03 passed — 串行派单仅派给最近志愿者");
     }
@@ -183,10 +183,10 @@ class MatchingTest extends BaseIntegrationTest {
 
         // 5. 最近的志愿者接单成功
         testHelper.respondAccept(volNear, orderId);
-        Thread.sleep(500); // 等待 @Async onDispatchAccepted 将状态推进到 IN_PROGRESS
+        Thread.sleep(500); // 等待 @Async onDispatchAccepted 将状态推进到 PENDING_ACCEPT
 
-        // 6. 接单后状态变为 IN_PROGRESS
-        assertThat(testHelper.getOrderStatus(blindToken, orderId)).isEqualTo(OrderStatus.IN_PROGRESS);
+        // 6. 接单后状态变为 PENDING_ACCEPT（待出发，尚未开始服务）
+        assertThat(testHelper.getOrderStatus(blindToken, orderId)).isEqualTo(OrderStatus.PENDING_ACCEPT);
 
         System.out.println("✅ TC-MATCH-06 passed — 多名志愿者按距离排序匹配");
     }

@@ -161,14 +161,15 @@
 | priority | string | `"HIGH"` 或 `"NORMAL"` |
 | timestamp | string | ISO 格式时间 |
 
-**订单状态流转**:
+**订单状态流转（v2，iOS 对齐）**:
 ```
-PENDING_MATCH → PENDING_ACCEPT → IN_PROGRESS → DRIVER_EN_ROUTE → DRIVER_ARRIVED → COMPLETED
-      ↓              ↓                ↓                ↓                 ↓
-  CANCELLED      REMATCHING       CANCELLED       REMATCHING        REMATCHING
+PENDING_MATCH → PENDING_ACCEPT → DRIVER_EN_ROUTE → DRIVER_ARRIVED → IN_PROGRESS → COMPLETED
+      ↓              ↓                 ↓                 ↓               ↓
+  CANCELLED      REMATCHING        REMATCHING        REMATCHING     (需 start-service 触发)
 
 NO_VOLUNTEER（无可用志愿者）
 ```
+`DRIVER_ARRIVED → IN_PROGRESS` 由志愿者调用 `POST /api/orders/{id}/start-service` 触发，推送 `eventType: SERVICE_STARTED` 给盲人（见下方通知模板）。
 
 #### EMERGENCY_RESOLVED_BY_VOLUNTEER — 紧急事件志愿者已确认
 

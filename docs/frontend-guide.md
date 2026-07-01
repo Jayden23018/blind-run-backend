@@ -10,7 +10,7 @@
 > | **志愿者可服务状态** | `GET /api/volunteer/profile` 响应新增 `wantsDispatch`（boolean）字段，用于展示开关状态。`PUT /api/volunteer/profile` 传 `wantsDispatch` 切换。**关闭时接单会被拒（403 + `VOLUNTEER_NOT_AVAILABLE`）**。 |
 > | **预约提前量** | 创建订单时 `plannedStartTime` 必须 ≥ 当前时间 + 30 分钟，否则返回 **HTTP 422** + `errorCode: APPOINTMENT_TOO_SOON`。前端表单应做前置提示。 |
 > | **紧急联系人电话明文** | `GET /api/users/{me}/emergency-contacts` 返回**明文**电话（不再掩码）。前端展示层需自行脱敏。`PUT` 更新改 PATCH 语义：未传 `phone` 字段保留原值（不必每次回传）。 |
-> | **状态机语义** | 盲人端无需"确认开始服务"。志愿者 `/arrived` 进入 `DRIVER_ARRIVED` 即视为服务进行中，可直接 `/finish`。`IN_PROGRESS` = 接单后出发前。 |
+> | **状态机语义（v2 更新，见 3.7 节）** | ⚠️ 此处描述已过时——志愿者 `/arrived` 不再可直接 `/finish`。新增 `POST /{id}/start-service`（`DRIVER_ARRIVED → IN_PROGRESS`），`/finish` 仅接受 `IN_PROGRESS`。详见「3.7 订单管理」。 |
 >
 > ### 错误码表（errorCode）
 >
@@ -247,11 +247,11 @@ POST /api/volunteer/registration/step2/id-card
 
 #### 订单状态流转
 ```
-PENDING_MATCH → PENDING_ACCEPT → IN_PROGRESS → DRIVER_EN_ROUTE → DRIVER_ARRIVED → COMPLETED
-       ↓              ↓               ↓              ↓                ↓
-    CANCELLED    REMATCHING        CANCELLED     REMATCHING       REMATCHING
+PENDING_MATCH → PENDING_ACCEPT → DRIVER_EN_ROUTE → DRIVER_ARRIVED → IN_PROGRESS → COMPLETED
+       ↓              ↓                ↓                 ↓               ↓
+    CANCELLED    REMATCHING        REMATCHING        REMATCHING      (仅志愿者可 /finish)
 ```
-> **语义说明（v1.5.0）**：盲人端**无需"确认开始服务"按钮**。`IN_PROGRESS` = 接单后、出发前；`DRIVER_ARRIVED` = 志愿者已到达，视为服务进行中。三个进行中状态（IN_PROGRESS / DRIVER_EN_ROUTE / DRIVER_ARRIVED）均可由志愿者直接 `/finish` 完成。
+> **语义说明（v2，iOS 对齐）**：`PENDING_ACCEPT` = 志愿者已接单、待出发；`DRIVER_EN_ROUTE` = 志愿者已出发；`DRIVER_ARRIVED` = 志愿者已到达盲人位置；志愿者点击"开始服务"调用 `POST /{id}/start-service` 后进入 `IN_PROGRESS`（陪跑进行中）；`/finish` **仅接受 `IN_PROGRESS` 状态**（不再接受 `DRIVER_EN_ROUTE`/`DRIVER_ARRIVED` 直接结束）。
 > **创建订单提前量**：`plannedStartTime` 必须 ≥ 当前时间 + 30 分钟，否则 HTTP 422 + `errorCode: APPOINTMENT_TOO_SOON`。
 
 | 方法 | 路径 | 说明 | 角色 |
@@ -259,10 +259,11 @@ PENDING_MATCH → PENDING_ACCEPT → IN_PROGRESS → DRIVER_EN_ROUTE → DRIVER_
 | POST | `/api/orders` | 创建订单 | BLIND |
 | GET | `/api/orders/available` | 获取可接订单 | VOLUNTEER |
 | POST | `/api/orders/{id}/respond` | 响应派单（接单/跳过）⭐推荐 | VOLUNTEER |
-| POST | `/api/orders/{id}/accept` | 接单（已废弃；**B2 后复用 /respond 校验，接单异步进入 IN_PROGRESS**） | VOLUNTEER |
+| POST | `/api/orders/{id}/accept` | 接单（已废弃；**B2 后复用 /respond 校验，接单异步进入 PENDING_ACCEPT**） | VOLUNTEER |
 | POST | `/api/orders/{id}/en-route` | 出发 | VOLUNTEER |
 | POST | `/api/orders/{id}/arrived` | 到达 | VOLUNTEER |
-| POST | `/api/orders/{id}/finish` | 完成 | VOLUNTEER |
+| POST | `/api/orders/{id}/start-service` | 确认开始服务（`DRIVER_ARRIVED → IN_PROGRESS`） | VOLUNTEER |
+| POST | `/api/orders/{id}/finish` | 完成（仅 `IN_PROGRESS` 可结束） | VOLUNTEER |
 | POST | `/api/orders/{id}/cancel` | 取消 | BLIND/VOLUNTEER |
 | PUT | `/api/orders/{id}/keep-waiting` | 延长等待 | BLIND |
 | GET | `/api/orders/{id}` | 订单详情 | 任意 |

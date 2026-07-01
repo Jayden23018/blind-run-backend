@@ -109,6 +109,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/orders/*/finish").hasRole("VOLUNTEER")
                         .requestMatchers(HttpMethod.POST, "/api/orders/*/en-route").hasRole("VOLUNTEER")
                         .requestMatchers(HttpMethod.POST, "/api/orders/*/arrived").hasRole("VOLUNTEER")
+                        .requestMatchers(HttpMethod.POST, "/api/orders/*/start-service").hasRole("VOLUNTEER")
                         .requestMatchers(HttpMethod.GET, "/api/orders/available").hasRole("VOLUNTEER")
                         // 订单：评价 → BLIND
                         .requestMatchers(HttpMethod.POST, "/api/orders/*/review").hasRole("BLIND")
