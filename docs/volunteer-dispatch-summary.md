@@ -129,6 +129,8 @@
 | `plannedStartTime` | string(datetime) | 否 | 计划开始时间 |
 | `plannedEndTime` | string(datetime) | 否 | 计划结束时间 |
 | `startAddress` | string | 否 | 起跑点文字地址 |
+| `startLatitude` | number | 否 | 起跑点纬度 |
+| `startLongitude` | number | 否 | 起跑点经度 |
 | `blindName` | string | 否 | 盲人姓名 |
 | `blindPhoneMasked` | string | 否 | 盲人手机号（**已脱敏**，如 `138****0001`） |
 | `acceptedAt` | string(datetime) | 是 | 接单时间（接单后才有） |
@@ -181,6 +183,8 @@
         "plannedStartTime": "2026-06-29T19:00:00",
         "plannedEndTime": "2026-06-29T20:00:00",
         "startAddress": "朝阳公园南门",
+        "startLatitude": 39.9372,
+        "startLongitude": 116.4736,
         "blindName": "张三",
         "blindPhoneMasked": "138****0001",
         "acceptedAt": "2026-06-29T18:55:00"

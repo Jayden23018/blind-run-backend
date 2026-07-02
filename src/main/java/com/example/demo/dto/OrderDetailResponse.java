@@ -15,6 +15,8 @@ public class OrderDetailResponse {
     private Long orderId;
     private OrderStatus status;
     private String startAddress;
+    private Double startLatitude;
+    private Double startLongitude;
     private LocalDateTime plannedStart;
     private LocalDateTime plannedEnd;
     private String volunteerPhone;

@@ -1947,6 +1947,12 @@ components:
           - NO_VOLUNTEER
         startAddress:
           type: string
+        startLatitude:
+          type: number
+          format: double
+        startLongitude:
+          type: number
+          format: double
         plannedStart:
           type: string
           format: date-time
@@ -2230,6 +2236,12 @@ components:
           format: date-time
         startAddress:
           type: string
+        startLatitude:
+          type: number
+          format: double
+        startLongitude:
+          type: number
+          format: double
         blindName:
           type: string
         blindPhoneMasked:

@@ -24,6 +24,10 @@ public class VolunteerDispatchActiveOrder {
     private LocalDateTime plannedEndTime;
     /** 起跑点文字地址（如「朝阳公园南门」） */
     private String startAddress;
+    /** 起跑点纬度 */
+    private Double startLatitude;
+    /** 起跑点经度 */
+    private Double startLongitude;
     /** 盲人姓名 */
     private String blindName;
     /** 盲人手机号（已脱敏，如 138****0001） */

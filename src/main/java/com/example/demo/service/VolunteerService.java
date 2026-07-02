@@ -236,6 +236,8 @@ public class VolunteerService {
                 o.getPlannedStartTime(),
                 o.getPlannedEndTime(),
                 o.getStartAddress(),
+                o.getStartLatitude(),
+                o.getStartLongitude(),
                 blind.getName(),
                 PhoneMaskUtils.mask(blind.getPhone()),
                 o.getAcceptedAt()
