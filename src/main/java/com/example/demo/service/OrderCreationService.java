@@ -71,6 +71,12 @@ public class OrderCreationService {
             throw new DuplicateOrderException("您有进行中的订单，请完成后再下单");
         }
 
+        BlindProfile blindProfile = blindProfileRepository.findByUserId(blindUserId)
+                .orElseThrow(() -> new BusinessException("PROFILE_INCOMPLETE", "请先完善盲人资料"));
+        if (blindProfile.getVerifyStatus() != BlindVerifyStatus.VERIFIED) {
+            throw new BusinessException("IDENTITY_NOT_VERIFIED", "请先完成身份认证再下单");
+        }
+
         if (!emergencyContactService.hasContacts(blindUserId)) {
             throw new OrderPermissionException("请先设置紧急联系人再下单");
         }
@@ -84,19 +90,17 @@ public class OrderCreationService {
         order.setPlannedEndTime(request.getPlannedEndTime());
         order.setStatus(OrderStatus.PENDING_MATCH);
 
-        BlindProfile profile = blindProfileRepository.findByUserId(blindUserId).orElse(null);
-
         order.setExpectedDurationMinutes(request.getExpectedDurationMinutes());
         order.setPacePreference(request.getPacePreference() != null
                 ? request.getPacePreference()
-                : (profile != null ? profile.getDefaultPace() : null));
+                : blindProfile.getDefaultPace());
         order.setRoutePreference(request.getRoutePreference() != null
                 ? request.getRoutePreference()
                 : RoutePreference.NO_PREFERENCE);
         order.setRouteNotes(request.getRouteNotes());
         order.setHasGuideDogThisRun(request.getHasGuideDogThisRun() != null
                 ? request.getHasGuideDogThisRun()
-                : (profile != null ? profile.getHasGuideDog() : null));
+                : blindProfile.getHasGuideDog());
         order.setSpecialNotes(request.getSpecialNotes());
         order.setMatchNotifyAt(LocalDateTime.now().plusSeconds(matchTimeoutSeconds));
 
