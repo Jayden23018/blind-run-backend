@@ -484,78 +484,50 @@ paths:
             'application/json':
               schema:
                 type: object
-  /api/volunteer/registration/step3/face-verify:
+  /api/volunteer/registration/step3/face-verify/init:
     post:
       tags:
       - volunteer-registration-controller
-      summary: 人脸验证（Step 3）
-      description: 上传自拍照片进行人脸比对
-      operationId: faceVerify
+      summary: 发起动作活体认证（Step 3 - init）
+      description: 提交 metaInfo（前端用阿里云 JS SDK 采集的设备指纹），调用阿里云
+        InitFaceVerify（SMART 方案）返回 certifyId + certifyUrl。前端打开 certifyUrl
+        引导用户完成动作活体后，轮询 /step3/face-verify/result 获取结果。
+      operationId: initFaceVerify
       requestBody:
         content:
-          multipart/form-data:
+          application/json:
             schema:
-              type: object
-              properties:
-                facePhoto:
-                  type: string
-                  format: binary
-                  description: 人脸自拍照片
-              required:
-              - facePhoto
+              $ref: '#/components/schemas/FaceVerifyInitRequest'
+        required: true
       responses:
         '200':
           description: OK
           content:
             'application/json':
               schema:
-                type: object
-  /api/volunteer/registration/step2/id-card:
+                $ref: '#/components/schemas/FaceVerifyInitResponse'
+  /api/volunteer/registration/step3/face-verify/result:
     post:
       tags:
       - volunteer-registration-controller
-      summary: 上传身份证（Step 2）
-      description: multipart/form-data 格式，上传身份证正反面照片
-      operationId: uploadIdCard
-      parameters:
-      - name: idCardName
-        in: query
-        description: 身份证姓名
-        required: true
-        schema:
-          type: string
-        example: 张三
-      - name: idCardNumber
-        in: query
-        description: 身份证号码
-        required: true
-        schema:
-          type: string
-        example: 440305200001011234
+      summary: 查询动作活体认证结果（Step 3 - result）
+      description: 根据 certifyId（须与当前用户绑定的 certifyId 一致，防越权）调用阿里云
+        DescribeFaceVerify 查询认证结果。前端在 init 返回后打开 certifyUrl 完成动作活体，
+        然后轮询本接口直到 status 变为 APPROVED 或 REJECTED。
+      operationId: queryFaceVerifyResult
       requestBody:
         content:
-          multipart/form-data:
+          application/json:
             schema:
-              type: object
-              properties:
-                frontFile:
-                  type: string
-                  format: binary
-                  description: 身份证正面照片（人像面）
-                backFile:
-                  type: string
-                  format: binary
-                  description: 身份证背面照片（国徽面）
-              required:
-              - backFile
-              - frontFile
+              $ref: '#/components/schemas/FaceVerifyResultRequest'
+        required: true
       responses:
         '200':
           description: OK
           content:
             'application/json':
               schema:
-                type: object
+                $ref: '#/components/schemas/FaceVerifyResultResponse'
   /api/volunteer/registration/step1:
     post:
       tags:
@@ -1615,6 +1587,8 @@ components:
       - timeSpentSeconds
     BasicInfoRequest:
       type: object
+      description: 志愿者基本信息（Step 1）。提交时自动触发阿里云 Id2Meta 二要素核验（idCardName
+        + idCardNumber）；通过后进入 Step 3 动作活体认证。原 Step 2 身份证照片上传已下线。
       properties:
         name:
           type: string
@@ -1624,12 +1598,88 @@ components:
           type: string
           minLength: 1
           pattern: ^1[3-9]\d{9}$
+        idCardName:
+          type: string
+          minLength: 2
+          maxLength: 50
+          description: 身份证姓名（提交即触发二要素核验）
+          example: 张三
+        idCardNumber:
+          type: string
+          minLength: 1
+          pattern: ^\d{17}[\dXx]$
+          description: 身份证号码（18 位，末位可为 X）
+          example: 440305200001011234
         runningExperience:
           type: string
         hasGuidedBefore:
           type: boolean
         emergencyExperience:
           type: string
+      required:
+      - name
+      - phone
+      - idCardName
+      - idCardNumber
+    FaceVerifyInitRequest:
+      type: object
+      description: 发起动作活体认证请求。metaInfo 由前端用阿里云 JS SDK 采集的设备指纹（JSON 字符串）。
+      properties:
+        metaInfo:
+          type: string
+          minLength: 1
+          description: 阿里云活体 SDK 采集的设备指纹
+      required:
+      - metaInfo
+    FaceVerifyInitResponse:
+      type: object
+      description: 发起动作活体认证响应。status 取值 PENDING（已发起，等待前端完成动作活体）/ ERROR（发起失败）。
+      properties:
+        certifyId:
+          type: string
+          description: 本次认证的唯一 ID，后续查询结果时回传
+        certifyUrl:
+          type: string
+          description: 前端打开此 URL 完成动作活体（OSS 回跳地址）
+        status:
+          type: string
+          enum:
+          - PENDING
+          - ERROR
+        message:
+          type: string
+      required:
+      - certifyId
+      - certifyUrl
+      - status
+    FaceVerifyResultRequest:
+      type: object
+      description: 查询动作活体认证结果请求。certifyId 须与当前用户绑定的 certifyId 一致（防越权）。
+      properties:
+        certifyId:
+          type: string
+          minLength: 1
+          description: init 接口返回的 certifyId
+      required:
+      - certifyId
+    FaceVerifyResultResponse:
+      type: object
+      description: 动作活体认证结果响应。status 取值 APPROVED（通过）/ REJECTED（失败，可重试）/ PENDING（进行中，前端继续轮询）。
+      properties:
+        passed:
+          type: boolean
+          description: 是否通过（status == APPROVED 时为 true）
+        status:
+          type: string
+          enum:
+          - APPROVED
+          - REJECTED
+          - PENDING
+        message:
+          type: string
+      required:
+      - passed
+      - status
     VolunteerLocationRequest:
       type: object
       properties:

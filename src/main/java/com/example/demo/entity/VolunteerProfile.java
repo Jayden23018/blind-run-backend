@@ -53,17 +53,13 @@ public class VolunteerProfile {
     @Column(name = "id_card_name", length = 50)
     private String idCardName;
 
-    /** 身份证正面照片URL */
-    @Column(name = "id_card_front_url", length = 500)
-    private String idCardFrontUrl;
-
-    /** 身份证背面照片URL */
-    @Column(name = "id_card_back_url", length = 500)
-    private String idCardBackUrl;
-
-    /** 人脸照片URL */
-    @Column(name = "face_photo_url", length = 500)
-    private String facePhotoUrl;
+    /**
+     * 动作活体认证的 certifyId（阿里云 InitFaceVerify 返回）。
+     * step1 提交身份证号后，前端调 init 拿到 certifyId 并存这里；
+     * 前端打开 CertifyUrl 完成动作活体，再轮询 result 用此 id 拉结果。
+     */
+    @Column(name = "face_verify_certify_id", length = 64)
+    private String faceVerifyCertifyId;
 
     /** 身份证验证状态 */
     @Enumerated(EnumType.STRING)

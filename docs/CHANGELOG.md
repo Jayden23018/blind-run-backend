@@ -16,6 +16,24 @@
   - 手动完成（finishOrder）+ 超时自动完成（autoComplete）两个入口都 +1。
 - **`dispatch-summary` 的 `recentOrders[]` 新增 `startAddress` + `blindName`**：每条近期记录现在带起跑点地址和盲人姓名。
 
+- **🔥 志愿者人脸认证升级为动作活体（InitFaceVerify / SMART 方案）**：原 `ContrastFaceVerify` 静态照片比对（`Model=NO_LIVENESS`，照片翻拍可过）替换为阿里云 `InitFaceVerify`（`productCode=SMART`）+ `DescribeFaceVerify` 两段式真动作活体（眨眼/点头交互发生在前端 H5），安全性提升到动作活体级别。
+  - **注册流程从 4 步精简为 3 步**：`BASIC_INFO(含身份证二要素核验) → FACE_VERIFY → TRAINING → COMPLETED`。**删除 step2（身份证正反面照片上传）**，姓名+身份证号挪到 step1（`BasicInfoRequest` 新增 `idCardName`/`idCardNumber`），提交即调 `Id2MetaVerify` 自动核验。
+  - **step3 改为两段式**（前端轮询拉结果）：
+    - `POST /api/volunteer/registration/step3/face-verify/init`（`{ metaInfo }`）→ 返回 `{ certifyId, certifyUrl, status, message }`，前端打开 `certifyUrl` 做动作。
+    - `POST /api/volunteer/registration/step3/face-verify/result`（`{ certifyId }`）→ 返回 `{ passed, status, message }`，`status` ∈ `APPROVED`/`REJECTED`/`PENDING`（PENDING 时前端继续轮询）。
+    - **防越权**：`result` 接口校验入参 `certifyId` 必须等于该用户 profile 上次 init 落库的 `faceVerifyCertifyId`，防止伪造他人 certifyId 查结果。
+    - **删除**旧 multipart 端点 `POST /step3/face-verify`（上传自拍）。
+  - ⚠️ **破坏性前端变更**：step2 整段删除；step3 从「上传一张自拍」变成「init 拿 URL → 前端做动作 → result 轮询」。前端必须改造（用户已确认接受）。
+  - ⚠️ **生产 DB 迁移**（生产 `ddl-auto=validate`，部署前必须执行）：
+    ```sql
+    ALTER TABLE volunteer_profile ADD COLUMN face_verify_certify_id VARCHAR(64) NULL;
+    -- 三个废弃列（id_card_front_url/id_card_back_url/face_photo_url）暂不 DROP，留一个 release 的回滚窗口
+    ```
+  - ⚠️ **新增环境变量**：`ALIYUN_CLOUDAUTH_SMART_SCENE_ID`（SMART 方案的 scene id，需在阿里云控制台为 SMART **单独新建** scene，现有 ContrastFaceVerify 的 scene 1000018059 大概率不能复用）、`FACE_VERIFY_RETURN_URL`（动作活体完成后阿里云回跳地址）。
+  - 配置项：`face-verify.provider`（`aliyun` 默认 / `test` 测试桩）、`app.face-verify.scene-id`、`app.face-verify.return-url`。
+  - 盲人 `verifyIdentity`（`Id2MetaVerify` 二要素）**不变**。
+  - 新增 17 个单元测试（`TestFaceVerifyServiceImplTest` certifyId 协议 5 个 + `VolunteerRegistrationServiceTest` 状态机/越权/迁移/幂等 12 个），全量回归通过。
+
 ### 明确不做
 
 - **积分系统（`pointsBalance`/`pointsDelta`）**：项目当前无积分系统，`dispatch-summary` 与 `recentOrders` 均**不返回**积分字段。前端首页暂不展示积分，待产品定义积分规则后单独评估。

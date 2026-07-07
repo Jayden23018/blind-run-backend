@@ -19,9 +19,6 @@ public class VolunteerReviewItemResponse {
     private String phone;
     private String idCardNumber; // 脱敏显示
     private String idCardName;
-    private String idCardFrontUrl;
-    private String idCardBackUrl;
-    private String facePhotoUrl;
     private RegistrationStep registrationStep;
     private IdVerifyStatus idVerifyStatus;
     private FaceVerifyStatus faceVerifyStatus;

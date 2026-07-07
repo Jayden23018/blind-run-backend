@@ -6,23 +6,22 @@ import com.example.demo.service.TrainingService;
 import com.example.demo.service.VolunteerRegistrationService;
 import com.example.demo.util.SecurityUtils;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
 
 /**
- * 志愿者注册控制器
+ * 志愿者注册控制器。
+ *
+ * 流程（动作活体改造后）：step1（基本信息+身份证）→ step3（动作活体 init/result）→ 培训。
+ * step2（身份证照片上传）已下线。
  */
 @Slf4j
 @RestController
 @RequestMapping("/api/volunteer/registration")
+@Tag(name = "志愿者注册", description = "志愿者注册流程接口")
 public class VolunteerRegistrationController {
 
     private final VolunteerRegistrationService registrationService;
@@ -38,6 +37,7 @@ public class VolunteerRegistrationController {
      * 获取注册状态
      */
     @GetMapping("/status")
+    @Operation(summary = "获取注册状态")
     public ResponseEntity<?> getRegistrationStatus() {
         Long userId = getCurrentUserId();
         RegistrationStatusResponse response = registrationService.getRegistrationStatus(userId);
@@ -45,9 +45,10 @@ public class VolunteerRegistrationController {
     }
 
     /**
-     * 提交基本信息
+     * 提交基本信息（含身份证姓名+号码，提交时自动二要素核验）
      */
     @PostMapping("/step1")
+    @Operation(summary = "提交基本信息（Step 1，含身份证信息）")
     public ResponseEntity<?> submitBasicInfo(@Valid @RequestBody BasicInfoRequest request) {
         Long userId = getCurrentUserId();
         registrationService.submitBasicInfo(userId, request);
@@ -55,100 +56,25 @@ public class VolunteerRegistrationController {
     }
 
     /**
-     * 上传身份证
+     * 发起动作活体认证（step3 第一段）。
+     * 返回 certifyId + CertifyUrl，前端打开 CertifyUrl 完成动作活体后轮询 result。
      */
-    @Operation(summary = "上传身份证（Step 2）", description = "multipart/form-data 格式，上传身份证正反面照片")
-    @PostMapping(value = "/step2/id-card", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<?> uploadIdCard(
-            @Parameter(description = "身份证姓名", required = true, example = "张三")
-            @RequestParam("idCardName") String idCardName,
-            @Parameter(description = "身份证号码", required = true, example = "440305200001011234")
-            @RequestParam("idCardNumber") String idCardNumber,
-            @Parameter(description = "身份证正面照片（人像面）", required = true,
-                    content = @Content(mediaType = MediaType.APPLICATION_OCTET_STREAM_VALUE))
-            @RequestParam("frontFile") MultipartFile frontFile,
-            @Parameter(description = "身份证背面照片（国徽面）", required = true,
-                    content = @Content(mediaType = MediaType.APPLICATION_OCTET_STREAM_VALUE))
-            @RequestParam("backFile") MultipartFile backFile) {
+    @PostMapping("/step3/face-verify/init")
+    @Operation(summary = "发起动作活体认证（Step 3 - init）")
+    public ResponseEntity<?> initFaceVerify(@Valid @RequestBody FaceVerifyInitRequest request) {
         Long userId = getCurrentUserId();
-
-        // 参数校验
-        if (idCardName == null || idCardName.isBlank()) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error(400, "身份证姓名不能为空"));
-        }
-        if (idCardName.length() > 50) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error(400, "身份证姓名不能超过50个字符"));
-        }
-        if (idCardNumber == null || idCardNumber.isBlank()) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error(400, "身份证号码不能为空"));
-        }
-        if (!idCardNumber.matches("^\\d{17}[\\dXx]$")) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error(400, "身份证号码格式不正确"));
-        }
-        if (frontFile == null || frontFile.isEmpty()) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error(400, "身份证正面照片不能为空"));
-        }
-        if (backFile == null || backFile.isEmpty()) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error(400, "身份证背面照片不能为空"));
-        }
-        String frontContentType = frontFile.getContentType();
-        if (frontContentType == null || !frontContentType.startsWith("image/")) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error(400, "正面照片必须为图片格式"));
-        }
-        String backContentType = backFile.getContentType();
-        if (backContentType == null || !backContentType.startsWith("image/")) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error(400, "背面照片必须为图片格式"));
-        }
-        long maxSize = 5 * 1024 * 1024;
-        if (frontFile.getSize() > maxSize) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error(400, "正面照片不能超过5MB"));
-        }
-        if (backFile.getSize() > maxSize) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error(400, "背面照片不能超过5MB"));
-        }
-
-        registrationService.uploadIdCard(userId, idCardName, idCardNumber, frontFile, backFile);
-        return ResponseEntity.ok(ApiResponse.ok("身份证已上传，等待管理员审核"));
+        FaceVerifyInitResponse response = registrationService.initFaceVerify(userId, request);
+        return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
     /**
-     * 人脸验证（上传自拍照片，调用阿里云API比对）
+     * 查询动作活体认证结果（step3 第二段，前端轮询）。
      */
-    @Operation(summary = "人脸验证（Step 3）", description = "上传自拍照片进行人脸比对")
-    @PostMapping(value = "/step3/face-verify", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<?> faceVerify(
-            @Parameter(description = "人脸自拍照片", required = true,
-                    content = @Content(mediaType = MediaType.APPLICATION_OCTET_STREAM_VALUE))
-            @RequestParam("facePhoto") MultipartFile facePhoto) {
+    @PostMapping("/step3/face-verify/result")
+    @Operation(summary = "查询动作活体认证结果（Step 3 - result）")
+    public ResponseEntity<?> queryFaceVerifyResult(@Valid @RequestBody FaceVerifyResultRequest request) {
         Long userId = getCurrentUserId();
-
-        // 参数校验
-        if (facePhoto == null || facePhoto.isEmpty()) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error(400, "人脸照片不能为空"));
-        }
-        String contentType = facePhoto.getContentType();
-        if (contentType == null || !contentType.startsWith("image/")) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error(400, "照片必须为图片格式"));
-        }
-        long maxSize = 5 * 1024 * 1024;
-        if (facePhoto.getSize() > maxSize) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error(400, "照片不能超过5MB"));
-        }
-
-        FaceVerifyInitResponse response = registrationService.initFaceVerify(userId, facePhoto);
+        FaceVerifyResultResponse response = registrationService.queryFaceVerifyResult(userId, request);
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
@@ -169,10 +95,7 @@ public class VolunteerRegistrationController {
     public ResponseEntity<?> submitTrainingProgress(@Valid @RequestBody TrainingProgressRequest request) {
         Long userId = getCurrentUserId();
         trainingService.submitProgress(userId, request);
-
-        // 检查是否完成所有课程
         trainingService.checkAllCoursesCompleted(userId);
-
         return ResponseEntity.ok(ApiResponse.ok("进度已更新"));
     }
 
@@ -193,10 +116,7 @@ public class VolunteerRegistrationController {
     public ResponseEntity<?> submitQuizAnswer(@Valid @RequestBody QuizAnswerRequest request) {
         Long userId = getCurrentUserId();
         QuizResultResponse result = trainingService.submitQuizAnswer(userId, request);
-
-        // 检查是否完成所有课程
         trainingService.checkAllCoursesCompleted(userId);
-
         return ResponseEntity.ok(ApiResponse.ok(result));
     }
 

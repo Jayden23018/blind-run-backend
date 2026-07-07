@@ -176,37 +176,69 @@
 
 > **规则**: 每个用户 1~5 个联系人；第一个自动设为主要；至少保留 1 个不能全删
 
-### 3.5 志愿者注册（4步流程）
+### 3.5 志愿者注册（3步流程）
 
-注册流程：`BASIC_INFO → ID_UPLOAD → FACE_VERIFY → TRAINING → COMPLETED`
+注册流程：`BASIC_INFO（含身份证二要素核验）→ FACE_VERIFY（动作活体）→ TRAINING → COMPLETED`
+
+> step2 身份证正反面照片上传已下线，身份证姓名+号码并入 step1 提交，由后端自动调用阿里云 Id2Meta 二要素核验；人脸验证升级为阿里云动作活体（SMART 方案），前端打开 `certifyUrl` 完成眨眼/点头交互后轮询结果。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/volunteer/registration/status` | 获取注册进度 |
-| POST | `/api/volunteer/registration/step1` | 提交基本信息 |
-| POST | `/api/volunteer/registration/step2/id-card` | 上传身份证（multipart） |
-| POST | `/api/volunteer/registration/step3/face-verify/init` | 人脸验证 |
+| POST | `/api/volunteer/registration/step1` | 提交基本信息 + 身份证姓名/号码（自动二要素核验） |
+| POST | `/api/volunteer/registration/step3/face-verify/init` | 发起动作活体，返回 `certifyId` + `certifyUrl` |
+| POST | `/api/volunteer/registration/step3/face-verify/result` | 查询动作活体结果（轮询） |
 | GET | `/api/volunteer/registration/training/courses` | 获取培训课程列表 |
 | POST | `/api/volunteer/registration/training/progress` | 提交学习进度 |
 | GET | `/api/volunteer/registration/training/quiz/{courseId}` | 获取测验题目 |
 | POST | `/api/volunteer/registration/training/quiz/answer` | 提交测验答案 |
 
-**Step1 BasicInfoRequest**:
+**Step1 BasicInfoRequest**（提交后后端自动做 Id2Meta 二要素核验，通过则推进到 FACE_VERIFY，未通过返回 REJECTED）:
 ```json
 {
   "name": "王五",
   "phone": "13800138000",
+  "idCardName": "王五",
+  "idCardNumber": "110101199001011234",
   "runningExperience": "3年跑步经验",
   "hasGuidedBefore": true,
   "emergencyExperience": "有急救证书"
 }
 ```
 
-**Step2 上传身份证**（multipart/form-data）:
+**Step3 动作活体（两段式，阿里云 SMART 方案）**：
+
+1) `POST /api/volunteer/registration/step3/face-verify/init`，请求体 `FaceVerifyInitRequest`：
+```json
+{
+  "metaInfo": "<前端用阿里云 JS SDK 采集的设备指纹 JSON 字符串>"
+}
 ```
-POST /api/volunteer/registration/step2/id-card
-参数: idCardName(姓名), idCardNumber(身份证号), frontFile(正面照), backFile(背面照)
+响应 `FaceVerifyInitResponse`：
+```json
+{
+  "certifyId": "xxxx-xxxx-xxxx",
+  "certifyUrl": "https://cn.aliyun.com/xxx",  // 在 webview/浏览器打开此 URL 完成眨眼/点头
+  "status": "PENDING",                          // PENDING=已发起等待交互 / ERROR=发起失败
+  "message": "ok"
+}
 ```
+
+2) `POST /api/volunteer/registration/step3/face-verify/result`，请求体 `FaceVerifyResultRequest`：
+```json
+{
+  "certifyId": "xxxx-xxxx-xxxx"
+}
+```
+响应 `FaceVerifyResultResponse`：
+```json
+{
+  "passed": true,
+  "status": "APPROVED",  // APPROVED=通过，进入培训 / REJECTED=失败，可重新 init / PENDING=进行中，继续轮询
+  "message": "ok"
+}
+```
+> 前端轮询建议：每 2~3 秒调用一次 result，直到 `status` 落到 APPROVED/REJECTED；PENDING 继续轮询。`certifyId` 必须与当前用户绑定的 init 返回一致。
 
 ### 3.6 志愿者功能
 
@@ -546,7 +578,7 @@ Authorization: Bearer <token>
 | 用户角色管理 | 设置 BLIND/VOLUNTEER 角色 |
 | 盲人资料管理 | 增删改查 |
 | 紧急联系人管理 | 1~5 个，本人读取返回**明文**电话（v1.5.0，前端展示层自行脱敏） |
-| 志愿者 4 步注册 | 基本信息→身份证→人脸→培训 |
+| 志愿者 3 步注册 | 基本信息+身份证二要素→动作活体→培训 |
 | 志愿者资料管理 | 含时间段设置 |
 | 订单完整生命周期 | 创建→匹配→接单→出发→到达→完成 |
 | 订单取消 & 重新匹配 | 支持双方取消 |
@@ -566,7 +598,7 @@ Authorization: Bearer <token>
 | 功能 | 当前状态 | 说明 |
 |------|---------|------|
 | 紧急联系人短信通知 | ✅ 已接入 | 阿里云 Dysmsapi（`EMERGENCY_ALERT` 等模板），非模拟 |
-| 人脸验证（志愿者 Step 3） | ✅ 已接入 | 阿里云金融级实人认证 `ContrastFaceVerify`（`ID_MIN`），非 stub |
+| 动作活体验证（志愿者 Step 3） | ✅ 已接入 | 阿里云金融级实人认证 `InitFaceVerify` + `DescribeFaceVerify`（SMART 方案，眨眼/点头），非 stub |
 | 隐私号码通话 | ⚠️ 默认 mock | `aliyun.private-number.enabled=false` 时返回假号码 170xxx；开通阿里云隐私号服务并设 `enabled=true` 可接真实 |
 
 ### 未实现
@@ -637,17 +669,16 @@ Token 有效期 24 小时，过期后需要重新登录。
 3. 点击右上角 **Authorize**，输入 `Bearer <token>`
 4. 然后就能在 Swagger 里直接测试所有接口
 
-### 7.7 文件上传
+### 7.7 文件上传 & 动作活体
 
-身份证和资质证件上传使用 `multipart/form-data`：
+身份证正反面照片上传已下线（step2 删除）。身份证信息走 step1 表单字段（`idCardName`/`idCardNumber`），由后端做二要素核验。
+
+资质证件上传仍使用 `multipart/form-data`：
 ```javascript
 const formData = new FormData();
-formData.append('frontFile', frontFile);
-formData.append('backFile', backFile);
-formData.append('idCardName', '张三');
-formData.append('idCardNumber', '110101199001011234');
+formData.append('file', licenseFile);
 
-fetch('http://47.114.113.171/api/volunteer/registration/step2/id-card', {
+fetch('http://47.114.113.171/api/volunteer/verification', {
   method: 'POST',
   headers: { 'Authorization': `Bearer ${token}` },
   body: formData  // 注意：不要手动设置 Content-Type
@@ -655,6 +686,8 @@ fetch('http://47.114.113.171/api/volunteer/registration/step2/id-card', {
 ```
 
 文件限制：仅支持 `.jpg/.jpeg/.png/.gif/.webp/.bmp/.pdf`，最大 5MB。
+
+动作活体（step3）为 JSON 请求，非文件上传：先 `POST .../face-verify/init` 拿到 `certifyUrl`，前端在 webview/浏览器中打开完成交互，再轮询 `POST .../face-verify/result`。
 
 ---
 
@@ -667,7 +700,7 @@ A: 检查手机号格式（11 位数字），60 秒内不能重复发送。
 A: 盲人用户必须先添加至少 1 个紧急联系人才能下单。
 
 **Q: 志愿者接单返回"请先完成志愿者注册流程"？**
-A: 志愿者必须完成全部 4 步注册（基本信息→身份证→人脸→培训）才能接单。
+A: 志愿者必须完成全部 3 步注册（基本信息+身份证二要素→动作活体→培训）才能接单。
 
 **Q: WebSocket 连接失败？**
 A: 检查 token 是否有效，URL 是否正确（`ws://` 不是 `http://`）。

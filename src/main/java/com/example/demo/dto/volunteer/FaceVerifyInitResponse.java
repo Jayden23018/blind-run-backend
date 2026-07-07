@@ -4,12 +4,14 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 
 /**
- * 人脸验证响应 DTO
+ * 发起动作活体认证响应。
+ * status: PENDING（已发起，等待前端完成动作活体）/ ERROR（发起失败）
  */
 @Data
 @AllArgsConstructor
 public class FaceVerifyInitResponse {
-    private boolean passed;
-    private String status;   // "PASSED" / "REJECTED"
+    private String certifyId;
+    private String certifyUrl;
+    private String status;
     private String message;
 }
