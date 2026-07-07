@@ -78,6 +78,9 @@ public class UserService {
         }
 
         user.setDeletedAt(LocalDateTime.now());
+        // 释放手机号：phone 列有唯一约束，软删除不会自动腾出手机号，
+        // 不改的话同一手机号注销后永远无法重新注册（撞唯一键报 500）
+        user.setPhone("deleted_" + user.getId() + "_" + user.getPhone());
         userRepository.save(user);
 
         // 立即使该用户的所有 token 失效

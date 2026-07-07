@@ -195,4 +195,30 @@ class UserTest extends BaseIntegrationTest {
 
         System.out.println("✅ TC-USER-09 passed — 注销其他用户返回 403");
     }
+
+    /** TC-USER-10：注销后同一手机号可重新注册（生成全新账号） */
+    @Test
+    @DisplayName("TC-USER-10: 注销后同一手机号可重新注册")
+    void tc10_reregisterWithSamePhoneAfterDelete() {
+        String phone = "13800020013";
+        String token = testHelper.registerAndLoginWithRole(phone, "BLIND");
+        Long oldUserId = testHelper.extractUserId(token);
+
+        ResponseEntity<String> deleteResponse = testHelper.deleteUser(token, oldUserId);
+        assertThat(deleteResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        // 同一手机号重新注册应该成功，且拿到一个全新的 userId
+        String newToken = testHelper.registerAndLogin(phone);
+        Long newUserId = testHelper.extractUserId(newToken);
+
+        assertThat(newUserId).isNotEqualTo(oldUserId);
+
+        // 新账号能正常查询自己的信息（未被软删除过滤掉）
+        ResponseEntity<String> infoResponse = testHelper.getUserInfo(newToken, newUserId);
+        assertThat(infoResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode json = testHelper.extractJson(infoResponse.getBody());
+        assertThat(json.get("phone").asText()).matches("\\d{3}\\*{4}\\d{4}");
+
+        System.out.println("✅ TC-USER-10 passed — 注销后同一手机号可重新注册");
+    }
 }
