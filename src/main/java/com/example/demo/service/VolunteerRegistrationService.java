@@ -87,18 +87,18 @@ public class VolunteerRegistrationService {
         String frontUrl = fileStorageService.store(frontFile);
         String backUrl = fileStorageService.store(backFile);
 
-        // 更新字段
+        // 更新字段；照片留存备查，身份证核验自动通过，无需管理员审核
         profile.setIdCardName(idCardName);
         profile.setIdCardNumber(idCardNumber);
         profile.setIdCardFrontUrl(frontUrl);
         profile.setIdCardBackUrl(backUrl);
-        profile.setIdVerifyStatus(IdVerifyStatus.PENDING);
+        profile.setIdVerifyStatus(IdVerifyStatus.APPROVED);
 
         // 推进到 STEP_3
         profile.setRegistrationStep(RegistrationStep.STEP_3_FACE_VERIFY);
         volunteerProfileRepository.save(profile);
 
-        log.info("志愿者 {} 上传身份证，等待管理员审核", userId);
+        log.info("志愿者 {} 上传身份证，照片已存档，自动通过进入人脸核验", userId);
     }
 
     /**
@@ -112,11 +112,6 @@ public class VolunteerRegistrationService {
         // 校验：必须在 STEP_3
         if (profile.getRegistrationStep() != RegistrationStep.STEP_3_FACE_VERIFY) {
             throw new RegistrationStepException("当前步骤不允许进行人脸验证");
-        }
-
-        // 校验：身份证必须已通过
-        if (profile.getIdVerifyStatus() != IdVerifyStatus.APPROVED) {
-            throw new RegistrationStepException("请先完成身份证审核");
         }
 
         // 保存人脸照片

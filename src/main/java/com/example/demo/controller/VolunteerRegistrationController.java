@@ -118,7 +118,7 @@ public class VolunteerRegistrationController {
         }
 
         registrationService.uploadIdCard(userId, idCardName, idCardNumber, frontFile, backFile);
-        return ResponseEntity.ok(ApiResponse.ok("身份证已上传，等待管理员审核"));
+        return ResponseEntity.ok(ApiResponse.ok("身份证已上传，请继续完成人脸核验"));
     }
 
     /**
