@@ -2,6 +2,8 @@ package com.example.demo.service;
 
 import com.example.demo.dto.volunteer.*;
 import com.example.demo.entity.*;
+import com.example.demo.exception.ErrorCode;
+import com.example.demo.exception.RegistrationRejectedException;
 import com.example.demo.exception.RegistrationStepException;
 import com.example.demo.exception.ResourceNotFoundException;
 import com.example.demo.repository.UserRepository;
@@ -55,8 +57,11 @@ public class VolunteerRegistrationService {
     /**
      * 提交基本信息（STEP_1 → STEP_3）。
      * 含身份证姓名+号码，提交时自动调用 Id2Meta 二要素核验：
-     *   通过 → idVerifyStatus=APPROVED，直接进入 step3
-     *   失败 → idVerifyStatus=REJECTED，记录原因，仍推进到 step3（前端可改信息重提或继续，人脸环节会再校验）
+     *   通过 → idVerifyStatus=APPROVED，推进到 step3
+     *   失败 → idVerifyStatus=REJECTED，**保持 STEP_1**，抛 ID_INFO_INVALID 引导前端修改后重提
+     *
+     * 规范化：身份证号去空格 + 转大写（前端本地正则放行末尾小写 x / 含空格，
+     * 但阿里云二要素与人脸初始化对此敏感，统一在落库前归一化）。
      */
     @Transactional
     public void submitBasicInfo(Long userId, BasicInfoRequest request) {
@@ -66,6 +71,10 @@ public class VolunteerRegistrationService {
             throw new RegistrationStepException("当前步骤不允许提交基本信息，当前步骤：" + profile.getRegistrationStep().name());
         }
 
+        // 身份证姓名/号码规范化：去前后空格，号码统一大写（末尾 X）
+        String idCardName = request.getIdCardName().trim();
+        String idCardNumber = request.getIdCardNumber().trim().toUpperCase();
+
         // 基本信息
         profile.setName(request.getName());
         profile.setPhone(request.getPhone());
@@ -73,25 +82,26 @@ public class VolunteerRegistrationService {
         profile.setHasGuidedBefore(request.getHasGuidedBefore() != null ? request.getHasGuidedBefore() : false);
         profile.setEmergencyExperience(request.getEmergencyExperience());
 
-        // 身份证姓名+号码（原 step2 字段挪到 step1）
-        profile.setIdCardName(request.getIdCardName());
-        profile.setIdCardNumber(request.getIdCardNumber());
+        // 身份证姓名+号码（规范化后落库）
+        profile.setIdCardName(idCardName);
+        profile.setIdCardNumber(idCardNumber);
 
-        // Id2Meta 二要素核验（与盲人 verifyIdentity 行为对齐）
-        boolean passed = idVerifyService.verifyIdCard(request.getIdCardName(), request.getIdCardNumber());
-        if (passed) {
-            profile.setIdVerifyStatus(IdVerifyStatus.APPROVED);
-            profile.setIdVerifyRejectionReason(null);
-            log.info("志愿者 {} 二要素核验通过", userId);
-        } else {
+        // Id2Meta 二要素核验：失败即拦截在 STEP_1，不推进到 step3
+        boolean passed = idVerifyService.verifyIdCard(idCardName, idCardNumber);
+        if (!passed) {
             profile.setIdVerifyStatus(IdVerifyStatus.REJECTED);
             profile.setIdVerifyRejectionReason("身份证姓名与号码不一致，请核对后重新提交");
-            log.warn("志愿者 {} 二要素核验未通过", userId);
+            volunteerProfileRepository.save(profile);   // 落库 REJECTED 但步骤仍保持 STEP_1
+            log.warn("志愿者 {} 二要素核验未通过，保持 STEP_1", userId);
+            throw new RegistrationRejectedException(ErrorCode.ID_INFO_INVALID,
+                    "身份证信息核验未通过，请核对姓名与身份证号");
         }
 
-        // 直接推进到 STEP_3（跳过已下线的 step2）
+        profile.setIdVerifyStatus(IdVerifyStatus.APPROVED);
+        profile.setIdVerifyRejectionReason(null);
         profile.setRegistrationStep(RegistrationStep.STEP_3_FACE_VERIFY);
         volunteerProfileRepository.save(profile);
+        log.info("志愿者 {} 二要素核验通过，推进到 STEP_3", userId);
     }
 
     /**
@@ -105,8 +115,13 @@ public class VolunteerRegistrationService {
         if (profile.getRegistrationStep() != RegistrationStep.STEP_3_FACE_VERIFY) {
             throw new RegistrationStepException("当前步骤不允许发起人脸认证");
         }
+        // 防御：本不应出现（step1 失败已拦截），但兼容历史脏数据 / 改造前已卡在 step3 的 REJECTED 用户
         if (profile.getIdVerifyStatus() == IdVerifyStatus.REJECTED) {
-            throw new RegistrationStepException("身份证核验未通过，请先更新身份证信息");
+            profile.setRegistrationStep(RegistrationStep.STEP_1_BASIC_INFO);
+            volunteerProfileRepository.save(profile);
+            log.warn("志愿者 {} 在 step3 发现身份证 REJECTED，回退到 STEP_1", userId);
+            throw new RegistrationRejectedException(ErrorCode.ID_INFO_INVALID,
+                    "身份证信息异常，请重新提交基本信息");
         }
 
         FaceVerifyInitResult result = faceVerifyService.initFaceVerify(

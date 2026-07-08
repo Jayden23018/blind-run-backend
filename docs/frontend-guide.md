@@ -18,6 +18,7 @@
 > |-----------|------|------|
 > | `INVALID_VERIFICATION_CODE` | 400 | 验证码错误或已过期 |
 > | `PHONE_FORMAT_INVALID` | 400 | 手机号格式不正确 |
+> | `ID_INFO_INVALID` | 400 | 身份证信息核验未通过（Step1 二要素不一致，或 Step3 init 发现身份证异常），前端应引导用户修改身份证姓名/号码 |
 > | `USER_NOT_FOUND` | 404 | 用户不存在 |
 > | `VOLUNTEER_NOT_AVAILABLE` | 403 | 志愿者已关闭可服务状态，可浏览但不能接单 |
 > | `VOLUNTEER_NOT_REGISTERED` | 403 | 志愿者注册流程未完成 |
@@ -193,7 +194,7 @@
 | GET | `/api/volunteer/registration/training/quiz/{courseId}` | 获取测验题目 |
 | POST | `/api/volunteer/registration/training/quiz/answer` | 提交测验答案 |
 
-**Step1 BasicInfoRequest**（提交后后端自动做 Id2Meta 二要素核验，通过则推进到 FACE_VERIFY，未通过返回 REJECTED）:
+**Step1 BasicInfoRequest**（提交后后端自动做 Id2Meta 二要素核验。**通过** → 推进到 FACE_VERIFY；**未通过** → 保持 `STEP_1_BASIC_INFO` + 返回 HTTP 400 `errorCode: ID_INFO_INVALID`，前端停留在 Step1 引导用户修改身份证信息。后端会自动 trim + 末尾 X 大写归一化，前端无需额外处理空格/大小写）:
 ```json
 {
   "name": "王五",
@@ -223,6 +224,7 @@
   "message": "ok"
 }
 ```
+> ⚠️ **身份证异常回退**：若 init 返回 HTTP 400 `errorCode: ID_INFO_INVALID`（历史脏数据：Step1 二要素未通过却已推进到 step3），后端已自动将步骤回退到 `STEP_1_BASIC_INFO`。前端收到后调 `GET /status` 刷新，引导用户回 Step1 修改身份证信息。
 
 2) `POST /api/volunteer/registration/step3/face-verify/result`，请求体 `FaceVerifyResultRequest`：
 ```json

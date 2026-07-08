@@ -1587,8 +1587,11 @@ components:
       - timeSpentSeconds
     BasicInfoRequest:
       type: object
-      description: 志愿者基本信息（Step 1）。提交时自动触发阿里云 Id2Meta 二要素核验（idCardName
-        + idCardNumber）；通过后进入 Step 3 动作活体认证。原 Step 2 身份证照片上传已下线。
+      description: >-
+        志愿者基本信息（Step 1）。提交时自动触发阿里云 Id2Meta 二要素核验（idCardName + idCardNumber）。
+        核验通过则推进到 Step 3 动作活体认证；核验未通过则保持 STEP_1_BASIC_INFO 并返回
+        HTTP 400 加 errorCode ID_INFO_INVALID（前端停留 Step1 引导修改）。后端自动 trim 并将
+        身份证号末位 X 统一大写。原 Step 2 身份证照片上传已下线。
       properties:
         name:
           type: string

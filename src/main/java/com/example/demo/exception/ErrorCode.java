@@ -28,6 +28,10 @@ public enum ErrorCode {
     /** 用户不存在 */
     USER_NOT_FOUND("USER_NOT_FOUND", 404),
 
+    // ===== 实名核验类（400）=====
+    /** 身份证信息核验未通过（二要素不一致或格式不合法） */
+    ID_INFO_INVALID("ID_INFO_INVALID", 400),
+
     // ===== 志愿者资质类（403）=====
     /** 志愿者已关闭可服务状态，可浏览订单但不能接单 */
     VOLUNTEER_NOT_AVAILABLE("VOLUNTEER_NOT_AVAILABLE", 403),

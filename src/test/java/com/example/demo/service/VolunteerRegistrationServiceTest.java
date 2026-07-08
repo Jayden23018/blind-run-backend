@@ -9,6 +9,8 @@ import com.example.demo.entity.FaceVerifyStatus;
 import com.example.demo.entity.IdVerifyStatus;
 import com.example.demo.entity.RegistrationStep;
 import com.example.demo.entity.VolunteerProfile;
+import com.example.demo.exception.ErrorCode;
+import com.example.demo.exception.RegistrationRejectedException;
 import com.example.demo.exception.RegistrationStepException;
 import com.example.demo.repository.UserRepository;
 import com.example.demo.repository.VolunteerProfileRepository;
@@ -91,17 +93,35 @@ class VolunteerRegistrationServiceTest {
     }
 
     @Test
-    @DisplayName("submitBasicInfo 身份证核验失败 → REJECTED + 仍推进到 STEP_3（前端可改信息重提）")
-    void submitBasicInfo_idVerifyRejected_stillAdvancesButMarkedRejected() {
+    @DisplayName("submitBasicInfo 身份证核验失败 → REJECTED + 保持 STEP_1 + 抛 ID_INFO_INVALID")
+    void submitBasicInfo_idVerifyRejected_staysAtStep1() {
         VolunteerProfile profile = profileAt(RegistrationStep.STEP_1_BASIC_INFO);
         when(volunteerProfileRepository.findByUserId(USER_ID)).thenReturn(Optional.of(profile));
         when(volunteerProfileRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(idVerifyService.verifyIdCard(anyString(), anyString())).thenReturn(false);
 
-        service.submitBasicInfo(USER_ID, basicInfo("李四", "110101199001011234"));
+        assertThatThrownBy(() -> service.submitBasicInfo(USER_ID, basicInfo("李四", "110101199001011234")))
+                .isInstanceOf(RegistrationRejectedException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.ID_INFO_INVALID);
 
         assertThat(profile.getIdVerifyStatus()).isEqualTo(IdVerifyStatus.REJECTED);
         assertThat(profile.getIdVerifyRejectionReason()).isNotNull();
+        assertThat(profile.getRegistrationStep()).isEqualTo(RegistrationStep.STEP_1_BASIC_INFO);
+    }
+
+    @Test
+    @DisplayName("submitBasicInfo 身份证号规范化：trim + 末尾小写 x 转大写后再核验与落库")
+    void submitBasicInfo_idCardNumberNormalized() {
+        VolunteerProfile profile = profileAt(RegistrationStep.STEP_1_BASIC_INFO);
+        when(volunteerProfileRepository.findByUserId(USER_ID)).thenReturn(Optional.of(profile));
+        when(volunteerProfileRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        // 核验只在大写归一化后的号上被调用
+        when(idVerifyService.verifyIdCard("张三", "11010119900101123X")).thenReturn(true);
+
+        BasicInfoRequest req = basicInfo("张三", " 11010119900101123x ");
+        service.submitBasicInfo(USER_ID, req);
+
+        assertThat(profile.getIdCardNumber()).isEqualTo("11010119900101123X");
         assertThat(profile.getRegistrationStep()).isEqualTo(RegistrationStep.STEP_3_FACE_VERIFY);
     }
 
@@ -138,14 +158,17 @@ class VolunteerRegistrationServiceTest {
     }
 
     @Test
-    @DisplayName("initFaceVerify 身份证 REJECTED → 拒绝发起")
-    void initFaceVerify_idRejected_throws() {
+    @DisplayName("initFaceVerify 身份证 REJECTED（历史脏数据） → 回退 STEP_1 + 抛 ID_INFO_INVALID")
+    void initFaceVerify_idRejected_rollsBackToStep1() {
         VolunteerProfile profile = profileAt(RegistrationStep.STEP_3_FACE_VERIFY);
         profile.setIdVerifyStatus(IdVerifyStatus.REJECTED);
         when(volunteerProfileRepository.findByUserId(USER_ID)).thenReturn(Optional.of(profile));
+        when(volunteerProfileRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         assertThatThrownBy(() -> service.initFaceVerify(USER_ID, initReq("{}")))
-                .isInstanceOf(RegistrationStepException.class);
+                .isInstanceOf(RegistrationRejectedException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.ID_INFO_INVALID);
+        assertThat(profile.getRegistrationStep()).isEqualTo(RegistrationStep.STEP_1_BASIC_INFO);
         verifyNoInteractions(faceVerifyService);
     }
 

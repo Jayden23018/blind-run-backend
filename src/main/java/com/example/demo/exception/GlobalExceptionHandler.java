@@ -144,6 +144,15 @@ public class GlobalExceptionHandler {
                 .body(Map.of("success", false, "code", 409, "message", e.getMessage()));
     }
 
+    /** 注册信息核验异常（如身份证二要素不一致） → 400，含 errorCode */
+    @ExceptionHandler(RegistrationRejectedException.class)
+    public ResponseEntity<Map<String, Object>> handleRegistrationRejected(RegistrationRejectedException e) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(Map.of("success", false, "code", 400,
+                        "errorCode", e.getErrorCode().code(), "message", e.getMessage()));
+    }
+
     /** 培训业务异常 → 400 */
     @ExceptionHandler(TrainingException.class)
     public ResponseEntity<Map<String, Object>> handleTraining(TrainingException e) {

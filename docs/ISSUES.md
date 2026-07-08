@@ -7,7 +7,7 @@
 > - 新评审发现的问题，按优先级（P0 > P1 > P2）追加到「待处理」对应区块。
 > - 每条标注信息可信度：**【已确证】**（读代码/文档确认）或 **【⚠️ 待核实】**（概括，需进一步核实）。
 
-**最近更新**：2026-06-23（S10 生产部署漏 FE-1 迁移导致 crash-loop + 502，已修复）
+**最近更新**：2026-07-08（V2 志愿者 Step1 二要素失败仍推进到 Step3 导致 Step3 init 报"身份信息格式不正确"，已修复）
 
 ---
 
@@ -16,7 +16,7 @@
 | 优先级 | 已解决 | 待处理 |
 |--------|--------|--------|
 | P0（影响核心功能/安全） | ✅ 5 / 5 | 0 |
-| P1（重要，应修） | ✅ 14 / 14 | 1（SMS-A3：短信模板参数格式） |
+| P1（重要，应修） | ✅ 15 / 15 | 1（SMS-A3：短信模板参数格式） |
 | P2（增强/优化） | ✅ 8 / 8 | 2（T2/T3，文档缺口） |
 
 **评审来源**：2026-06-17 首次全面代码评审。
@@ -181,6 +181,23 @@
 - **方案（方案A）**：`VolunteerProfile` 加 `totalTimeout` 字段；Repository 加 `atomicIncrementTimeoutStats`（递增 total_dispatched + total_timeout，不动 total_declined/accepted）；`handleVolunteerTimeout` 改调它。超时对 acceptanceRate 完全中性（不计分子分母），且保留超时数据供分析。
 - **理由**：主动拒绝是主观意愿，超时是客观未响应（网络/没看到），混为一谈对志愿者不公；单独统计保留数据。
 - **涉及**：`VolunteerProfile`、`VolunteerProfileRepository`、`DispatchService.handleVolunteerTimeout`、`ScoringService` Javadoc 更正。
+
+### [P1] V2 · 志愿者 Step1 二要素失败仍推进到 Step3，导致 Step3 init 报"身份信息格式不正确" — `2026-07-08` 【已确证】
+
+- **问题**：`VolunteerRegistrationService.submitBasicInfo` 调用阿里云 Id2Meta 二要素核验后，**无论通过与否都执行 `setRegistrationStep(STEP_3_FACE_VERIFY)`**（旧代码注释明写"失败仍推进到 step3"）。前端因此进入"活体认证"页，点击 init 时后端把 Step1 存的 `idCardName/idCardNumber` 传给阿里云 `InitFaceVerify`，阿里云因身份信息不合法返回 code 401，后端翻译成"身份信息格式不正确"。**Step1 推进成功 ≠ 二要素通过**，前后端状态矛盾。
+- **影响**：身份证二要素本就没通过（或前端传了带空格/末尾小写 x 等本地正则放行但阿里云拒的格式）的用户，被错误推进到活体页，在 init 阶段才失败，体验割裂，且无结构化错误码可供前端引导。
+- **次要根因**：Step1 落库**未做 trim/大写归一化**——`BasicInfoRequest` 正则 `^\d{17}[\dXx]$` 放行小写 x 和带空格输入，阿里云二要素与人脸初始化对此敏感。
+- **方案**：
+  1. `submitBasicInfo` 落库前对身份证号 `.trim().toUpperCase()`、姓名 `.trim()`。
+  2. 二要素核验**失败即拦截**：保持 `STEP_1_BASIC_INFO` + 落库 `REJECTED`，抛 `RegistrationRejectedException(ErrorCode.ID_INFO_INVALID)`（HTTP 400）。
+  3. `initFaceVerify` 防御兜底：发现 `idVerifyStatus=REJECTED` 的历史脏数据时**回退步骤到 STEP_1_BASIC_INFO** 并抛 `ID_INFO_INVALID`，引导用户重填（兼容本次修复前已卡在 step3 的用户）。
+  4. 新增错误码 `ErrorCode.ID_INFO_INVALID`（400）+ 异常类 `RegistrationRejectedException`（带 errorCode，区别于流程顺序异常 `RegistrationStepException` 的 409）。
+  5. `GlobalExceptionHandler` 注册新异常 → 统一 `{success:false, code:400, errorCode:"ID_INFO_INVALID", message}`。
+- **字段决策（前端契约）**：`name`（展示名）与 `idCardName`（身份证姓名）**保留两个字段**——二要素与人脸核验只用 `idCardName/idCardNumber`，`name` 仅用于通知/展示。前端填一次姓名、提交时 `name=idCardName` 即可。
+- **涉及文件**：`VolunteerRegistrationService`、`ErrorCode`、`RegistrationRejectedException`（新增）、`GlobalExceptionHandler`、`VolunteerRegistrationServiceTest`
+- **前端须知**：① Step1 收到 `ID_INFO_INVALID` → 停在 Step1 提示核对；② Step3 init 收到 `ID_INFO_INVALID` → 调 `/status` 刷新，步骤已回退到 `STEP_1_BASIC_INFO`。
+- **验证**：`VolunteerRegistrationServiceTest` 全部通过（2 个断言对齐新行为 + 1 个新增 trim/大写归一化用例）。
+
 
 ### [P2] A8 · 派单进度反馈 + 修复模板缺失 bug — `2026-06-19` 【已确证】
 
