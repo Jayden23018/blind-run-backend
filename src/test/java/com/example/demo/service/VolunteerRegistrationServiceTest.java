@@ -146,7 +146,7 @@ class VolunteerRegistrationServiceTest {
         profile.setIdCardNumber("110101199001011234");
         when(volunteerProfileRepository.findByUserId(USER_ID)).thenReturn(Optional.of(profile));
         when(volunteerProfileRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(faceVerifyService.initFaceVerify(anyString(), anyString(), anyString(), anyString(), anyString()))
+        when(faceVerifyService.initFaceVerify(anyString(), anyString(), anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(new FaceVerifyInitResult("cid-1", "https://aliyun/cid-1", "ok"));
 
         FaceVerifyInitResponse resp = service.initFaceVerify(USER_ID, initReq("{}"));
@@ -180,7 +180,7 @@ class VolunteerRegistrationServiceTest {
         profile.setIdCardName("张三");
         profile.setIdCardNumber("110101199001011234");
         when(volunteerProfileRepository.findByUserId(USER_ID)).thenReturn(Optional.of(profile));
-        when(faceVerifyService.initFaceVerify(anyString(), anyString(), anyString(), anyString(), anyString()))
+        when(faceVerifyService.initFaceVerify(anyString(), anyString(), anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(new FaceVerifyInitResult(null, null, "阿里云错误"));
 
         FaceVerifyInitResponse resp = service.initFaceVerify(USER_ID, initReq("{}"));

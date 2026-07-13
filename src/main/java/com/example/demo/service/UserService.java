@@ -2,6 +2,7 @@ package com.example.demo.service;
 
 import com.example.demo.entity.OrderStatus;
 import com.example.demo.entity.User;
+import com.example.demo.exception.ErrorCode;
 import com.example.demo.exception.OrderStatusException;
 import com.example.demo.exception.PermissionDeniedException;
 import com.example.demo.exception.ResourceNotFoundException;
@@ -74,7 +75,7 @@ public class UserService {
                         OrderStatus.IN_PROGRESS, OrderStatus.REMATCHING)
         );
         if (hasActiveOrder) {
-            throw new OrderStatusException("您有进行中的订单，无法注销");
+            throw new OrderStatusException(ErrorCode.ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED, "您有进行中的订单，无法注销");
         }
 
         user.setDeletedAt(LocalDateTime.now());

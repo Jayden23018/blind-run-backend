@@ -153,12 +153,23 @@ public class GlobalExceptionHandler {
                         "errorCode", e.getErrorCode().code(), "message", e.getMessage()));
     }
 
-    /** 培训业务异常 → 400 */
+    /** 培训业务异常 → 400（统一结构，含 errorCode） */
     @ExceptionHandler(TrainingException.class)
     public ResponseEntity<Map<String, Object>> handleTraining(TrainingException e) {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
-                .body(Map.of("success", false, "code", 400, "message", e.getMessage()));
+                .body(Map.of("success", false, "code", 400,
+                        "errorCode", e.getErrorCode(), "message", e.getMessage()));
+    }
+
+    /** 短信服务商侧流控/业务失败 → 429（非系统故障，需前端友好提示） */
+    @ExceptionHandler(SmsSendException.class)
+    public ResponseEntity<Map<String, Object>> handleSmsSendException(SmsSendException e) {
+        ErrorCode errorCode = e.getErrorCode();
+        return ResponseEntity
+                .status(errorCode.httpStatus())
+                .body(Map.of("success", false, "code", errorCode.httpStatus(),
+                        "errorCode", errorCode.code(), "message", e.getMessage()));
     }
 
     /** 速率限制异常 → 429 */

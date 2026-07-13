@@ -82,7 +82,7 @@ public class VolunteerRegistrationController {
      * 获取培训课程列表
      */
     @GetMapping("/training/courses")
-    public ResponseEntity<?> getTrainingCourses() {
+    public ResponseEntity<ApiResponse<java.util.List<TrainingCourseResponse>>> getTrainingCourses() {
         Long userId = getCurrentUserId();
         var courses = trainingService.getCourses(userId);
         return ResponseEntity.ok(ApiResponse.ok(courses));
@@ -92,7 +92,7 @@ public class VolunteerRegistrationController {
      * 提交学习进度
      */
     @PostMapping("/training/progress")
-    public ResponseEntity<?> submitTrainingProgress(@Valid @RequestBody TrainingProgressRequest request) {
+    public ResponseEntity<ApiResponse<String>> submitTrainingProgress(@Valid @RequestBody TrainingProgressRequest request) {
         Long userId = getCurrentUserId();
         trainingService.submitProgress(userId, request);
         trainingService.checkAllCoursesCompleted(userId);
@@ -103,7 +103,7 @@ public class VolunteerRegistrationController {
      * 获取课程测验题目
      */
     @GetMapping("/training/quiz/{courseId}")
-    public ResponseEntity<?> getQuizQuestions(@PathVariable Long courseId) {
+    public ResponseEntity<ApiResponse<java.util.List<QuizQuestionResponse>>> getQuizQuestions(@PathVariable Long courseId) {
         Long userId = getCurrentUserId();
         var questions = trainingService.getQuizQuestions(userId, courseId);
         return ResponseEntity.ok(ApiResponse.ok(questions));
@@ -113,7 +113,7 @@ public class VolunteerRegistrationController {
      * 提交测验答案
      */
     @PostMapping("/training/quiz/answer")
-    public ResponseEntity<?> submitQuizAnswer(@Valid @RequestBody QuizAnswerRequest request) {
+    public ResponseEntity<ApiResponse<QuizResultResponse>> submitQuizAnswer(@Valid @RequestBody QuizAnswerRequest request) {
         Long userId = getCurrentUserId();
         QuizResultResponse result = trainingService.submitQuizAnswer(userId, request);
         trainingService.checkAllCoursesCompleted(userId);

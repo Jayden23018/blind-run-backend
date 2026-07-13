@@ -55,10 +55,40 @@ public enum ErrorCode {
     ORDER_DISPATCH_MISMATCH("ORDER_DISPATCH_MISMATCH", 409),
     /** 订单并发冲突（乐观锁/分布式锁抢占失败） */
     ORDER_CONCURRENT_CONFLICT("ORDER_CONCURRENT_CONFLICT", 409),
+    /** 有进行中的订单，无法注销账号 */
+    ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED("ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED", 409),
 
     // ===== 订单创建类（422）=====
     /** 预约开始时间距当前时间不足阈值 */
-    APPOINTMENT_TOO_SOON("APPOINTMENT_TOO_SOON", 422);
+    APPOINTMENT_TOO_SOON("APPOINTMENT_TOO_SOON", 422),
+
+    // ===== 短信类（429）=====
+    /** 短信服务商侧流控（如单手机号日发送上限），非系统故障 */
+    SMS_SEND_LIMIT_EXCEEDED("SMS_SEND_LIMIT_EXCEEDED", 429),
+
+    // ===== 培训类（TrainingException 统一走 400，errorCode 仅用于前端程序化区分场景）=====
+    /** 兜底通用培训错误 */
+    TRAINING_ERROR("TRAINING_ERROR", 400),
+    /** 课程不存在或未激活 */
+    TRAINING_COURSE_NOT_FOUND("TRAINING_COURSE_NOT_FOUND", 400),
+    /** 未到 STEP_4_TRAINING/STEP_4_COMPLETED，不能提交培训进度 */
+    TRAINING_STEP_NOT_REACHED("TRAINING_STEP_NOT_REACHED", 400),
+    /** 前置课程未完成，不能学习当前课程 */
+    TRAINING_PREREQUISITE_NOT_MET("TRAINING_PREREQUISITE_NOT_MET", 400),
+    /** 提交的进度低于已保存进度（不允许倒退） */
+    TRAINING_PROGRESS_REGRESSION("TRAINING_PROGRESS_REGRESSION", 400),
+    /** 进度提交速率异常（反作弊：远超正常观看速度） */
+    TRAINING_PROGRESS_RATE_ANOMALY("TRAINING_PROGRESS_RATE_ANOMALY", 400),
+    /** 并发提交冲突，需要重试 */
+    TRAINING_PROGRESS_CONFLICT("TRAINING_PROGRESS_CONFLICT", 400),
+    /** 尚未开始学习该课程，无进度记录 */
+    TRAINING_NOT_STARTED("TRAINING_NOT_STARTED", 400),
+    /** 课程学习进度未达到测验解锁线（95%） */
+    TRAINING_QUIZ_LOCKED("TRAINING_QUIZ_LOCKED", 400),
+    /** 测验题目不存在 */
+    TRAINING_QUESTION_NOT_FOUND("TRAINING_QUESTION_NOT_FOUND", 400),
+    /** 提交的题目不属于该课程 */
+    TRAINING_QUESTION_COURSE_MISMATCH("TRAINING_QUESTION_COURSE_MISMATCH", 400);
 
     private final String code;
     private final int httpStatus;

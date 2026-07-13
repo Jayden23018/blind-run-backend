@@ -37,6 +37,10 @@ public class UserController {
     public ResponseEntity<?> deleteUser(@PathVariable @Min(1) Long id) {
         Long currentUserId = SecurityUtils.getCurrentUserId();
         userService.deleteAccount(id, currentUserId);
-        return ResponseEntity.ok(Map.of("success", true));
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "phoneReusable", true,
+                "allTokensInvalidated", true
+        ));
     }
 }

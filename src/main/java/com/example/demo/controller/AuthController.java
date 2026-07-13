@@ -50,7 +50,7 @@ public class AuthController {
     public ResponseEntity<?> logout(HttpServletRequest request) {
         String header = request.getHeader("Authorization");
         if (header != null && header.startsWith("Bearer ")) {
-            tokenBlacklistService.blacklistUserFromToken(header.substring(7));
+            tokenBlacklistService.blacklistToken(header.substring(7));
         }
         return ResponseEntity.ok(Map.of("success", true));
     }

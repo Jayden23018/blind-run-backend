@@ -57,6 +57,21 @@
   - 含订单状态机串联测试示例、4 角色 token 获取模板、Redis key 速查、错误码映射、生产环境红线(禁破坏性测试)
 - 文档第 2.3 节收录社区 [springboot-skills-marketplace](https://github.com/a-pavithraa/springboot-skills-marketplace) 插件(可选;本项目已有 `everything-claude-code` 覆盖 `java-reviewer`/`security-reviewer`/`code-reviewer`,`spring-data-jpa` 专项可按需补装)。
 
+### 修复
+
+- **登出（`POST /api/auth/logout` / `POST /api/cs/auth/logout`）此前会误撤销同账号其他仍有效的 Token，现已修复为只撤销当前 Token**：典型触发场景——登录拿 Token A → `POST /api/user/role` 选角色拿替换 Token B → 用 Token A 调登出 → Token B 也随之失效（401）。根因是登出黑名单机制此前按用户整体撤销（S1，2026-06-17），只要 Token 签发时间早于登出时刻就会被一并吊销。
+  - **✅ 已确认契约**：登出的预期范围就是"仅当前 Token"，与前端/iOS 原有假设一致，**无需改动客户端行为**。
+  - 账号注销（`DELETE /api/users/{id}`）仍然会撤销该账户**全部** Token，这一行为不变——注销和登出走的是两套独立机制。
+  - **`DELETE /api/users/{id}` 成功响应新增字段**：`phoneReusable: true`、`allTokensInvalidated: true`（原来只有 `success: true`）。
+  - **活动订单阻止注销的 errorCode 更正**：从通用的 `ORDER_STATUS_NOT_ALLOWED` 改为专用的 `ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED`（HTTP 状态码仍是 409），前端可据此精确区分该场景。
+  - 纯后端修复，登出/注销的请求体不变，前端无需改动请求逻辑；仅注销响应新增了上述两个字段，前端如需展示可读取。
+  - ⚠️ **尚未部署到生产环境**，本地已修复并通过单元测试，待部署后按检查清单复测。
+
+- **志愿者 Step3 动作活体人脸认证（发起认证）此前 100% 失败，现已修复**：调用 `POST /api/volunteer/registration/step3/face-verify/init` 发起动作活体认证时，服务端调用阿里云动作活体接口遗漏了必填的用户标识参数，导致阿里云侧参数校验不通过、所有用户的发起请求均失败。现已补全该参数，问题解决。
+  - 纯后端修复，不改变客户端请求体/接口契约，前端无需改动。
+  - ⚠️ **注意**：此前所有尝试发起 Step3 动作活体认证的用户都会遇到此问题；如果之前测试/使用失败，可重新尝试。
+  - 本次为该功能区（Step3 动作活体人脸认证）当天的第二次修复，与此前同日修复的 `ProductCode` 取值问题（`SMART` → `LR_FR`）根因不同、彼此独立。
+
 ## [1.5.0] - 2026-06-22
 
 ### 前端联调反馈修复（6 项）

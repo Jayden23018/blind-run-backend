@@ -105,6 +105,32 @@
 - `BLIND` — 盲人用户，可创建订单
 - `VOLUNTEER` — 志愿者，可接单
 
+### 2.3 登出与账号注销
+
+```json
+// POST /api/auth/logout（或客服 POST /api/cs/auth/logout）
+// 请求头：Authorization: Bearer <token>
+// 响应
+{ "success": true }
+```
+
+**⚠️ 登出契约（S11，2026-07-13 确认）**：登出只撤销**本次请求携带的这一个** token，不影响同账号其他仍在有效期内的 token。
+典型场景：登录拿 Token A → `POST /api/user/role` 选角色拿到替换 Token B → 前端务必用**最新（Token B）**去调用后续接口和登出；若仍用旧的 Token A 调登出，Token A 会失效但 Token B 不受影响（这正是设计意图，不是 bug）。
+
+```json
+// DELETE /api/users/{id}（注销账号，只能删自己）
+// 响应（成功）
+{ "success": true, "phoneReusable": true, "allTokensInvalidated": true }
+
+// 响应（删除他人 ID，HTTP 403）
+
+// 响应（有进行中订单，HTTP 409）
+{ "success": false, "code": 409, "errorCode": "ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED", "message": "您有进行中的订单，无法注销" }
+```
+
+- 注销**撤销该账户全部 token**（与登出的单 token 撤销不同，因为账号已不存在，没有"保留其他会话"的意义）。
+- 注销成功后原手机号立即释放，可重新注册。
+
 ---
 
 ## 三、全部 API 接口
@@ -181,13 +207,13 @@
 
 注册流程：`BASIC_INFO（含身份证二要素核验）→ FACE_VERIFY（动作活体）→ TRAINING → COMPLETED`
 
-> step2 身份证正反面照片上传已下线，身份证姓名+号码并入 step1 提交，由后端自动调用阿里云 Id2Meta 二要素核验；人脸验证升级为阿里云动作活体（SMART 方案），前端打开 `certifyUrl` 完成眨眼/点头交互后轮询结果。
+> step2 身份证正反面照片上传已下线，身份证姓名+号码并入 step1 提交，由后端自动调用阿里云 Id2Meta 二要素核验；人脸验证升级为阿里云动作活体（SMART 方案，App SDK 集成），客户端用阿里云原生 App SDK（`AliyunFaceAuthFacade.verify(certifyId)`）直接完成眨眼/点头交互（无需打开 URL）后轮询结果。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/volunteer/registration/status` | 获取注册进度 |
 | POST | `/api/volunteer/registration/step1` | 提交基本信息 + 身份证姓名/号码（自动二要素核验） |
-| POST | `/api/volunteer/registration/step3/face-verify/init` | 发起动作活体，返回 `certifyId` + `certifyUrl` |
+| POST | `/api/volunteer/registration/step3/face-verify/init` | 发起动作活体，返回 `certifyId` |
 | POST | `/api/volunteer/registration/step3/face-verify/result` | 查询动作活体结果（轮询） |
 | GET | `/api/volunteer/registration/training/courses` | 获取培训课程列表 |
 | POST | `/api/volunteer/registration/training/progress` | 提交学习进度 |
@@ -219,11 +245,12 @@
 ```json
 {
   "certifyId": "xxxx-xxxx-xxxx",
-  "certifyUrl": "https://cn.aliyun.com/xxx",  // 在 webview/浏览器打开此 URL 完成眨眼/点头
-  "status": "PENDING",                          // PENDING=已发起等待交互 / ERROR=发起失败
+  "certifyUrl": null,                           // 恒为 null，App SDK 场景阿里云不返回该字段，客户端无需处理
+  "status": "PENDING",                          // PENDING=已发起，客户端用 App SDK 完成动作活体 / ERROR=发起失败
   "message": "ok"
 }
 ```
+客户端拿到 `certifyId` 后，使用阿里云原生 App SDK（iOS `AliyunFaceAuthFacade.verify(certifyId)`）直接发起眨眼/点头动作活体，无需打开任何 URL。
 > ⚠️ **身份证异常回退**：若 init 返回 HTTP 400 `errorCode: ID_INFO_INVALID`（历史脏数据：Step1 二要素未通过却已推进到 step3），后端已自动将步骤回退到 `STEP_1_BASIC_INFO`。前端收到后调 `GET /status` 刷新，引导用户回 Step1 修改身份证信息。
 
 2) `POST /api/volunteer/registration/step3/face-verify/result`，请求体 `FaceVerifyResultRequest`：
@@ -241,6 +268,19 @@
 }
 ```
 > 前端轮询建议：每 2~3 秒调用一次 result，直到 `status` 落到 APPROVED/REJECTED；PENDING 继续轮询。`certifyId` 必须与当前用户绑定的 init 返回一致。
+
+**培训学习模块（4 个接口，均在 STEP_4_TRAINING / STEP_4_COMPLETED 下可用）**：
+
+- **内容格式**：`GET /training/courses` 返回的 `content` 是 **HTML 富文本**（非 Markdown），前端用 WebView / `NSAttributedString(html:)` 渲染；`videoUrl` 为空时渲染 `content`，非空时优先播放视频。当前 3 门种子课程 `videoUrl` 均为 `null`。
+- **进度由客户端计算**：`POST /training/progress` 的 `progressPercent` 由 iOS 自行算好后直接提交，后端**不会**根据 `lastPositionSeconds`/`timeSpentSeconds` 反算，这两个字段仅存档 + 反作弊用。反作弊规则：进度不能倒退（提交值 ≤ 当前值且 <100 会报 400，`errorCode=TRAINING_PROGRESS_REGRESSION`，但提交 100 允许重复）；提交速率不能超过约每分钟 100%（正常观看速度的 10 倍），否则 400，`errorCode=TRAINING_PROGRESS_RATE_ANOMALY`。**接口非严格幂等**——同一非 100 的百分比重复提交会报错，不要做"失败自动重试同值"的逻辑，重试前应先 `GET /courses` 核对当前值。并发写同一课程进度（如断网重发）时可能命中乐观锁/唯一约束冲突，也是 400，`errorCode=TRAINING_PROGRESS_CONFLICT`——前端遇到这个码直接重试一次即可，不需要特殊提示。
+- **限流**：`training/*` 与 `step1`/`step3/*` 共享同一个 **20 次/分钟/IP** 的 `registration` 限流桶（不是按用户、不是按课程单独限流）。触发返回 **HTTP 429**，body `{error:"TOO_MANY_REQUESTS", message, retryAfterSeconds}`（注意字段名是 `error` 不是 `errorCode`），同时带 `Retry-After` 响应头。
+- **测验解锁阈值：进度 ≥95%**（不是 100%）。`GET /training/courses` 返回的 `TrainingCourseResponse` 现已带 `canTakeQuiz`（布尔，等价于 `progressPercent>=95`）和 `quizLockedReason`（未解锁时的中文提示，已解锁为 `null`），前端可直接用 `canTakeQuiz` 控制测验入口显隐，不必自己算阈值。`GET /training/quiz/{courseId}` 和 `POST /training/quiz/answer` 在未达标时仍返回 **HTTP 400**，body 带稳定 `errorCode=TRAINING_QUIZ_LOCKED`（课程完全没学过是 `TRAINING_NOT_STARTED`），前端可据此程序化判断，不必匹配中文文案。
+- **答案格式**：`options`/`answers` 传输的是**完整选项文本原文**，不是字母码 "A"/"B"（代码注释已同步更正，与实际行为一致）。单选题 `answers` 是长度 1 的字符串数组，多选题是长度 >1 的数组，元素必须**逐字精确等于** `GET /training/quiz/{courseId}` 返回的某个 `options[i]`（顺序每次请求随机打乱，多选不区分提交顺序）。
+- **逐题提交**：`POST /training/quiz/answer` 一次只提交一题；每次提交后立即按"每题最新一次作答"重新汇总整卷结果返回（`correctCount/totalQuestions/scorePercent/passed`），不存在"交卷"这个动作。
+- **及格线 60%，不限答题次数**：`QuizResultResponse.remainingAttempts` 恒为 `-1`（哨兵值，代表无限次），不是真实剩余次数计数，无冷却时间、无重置逻辑。
+- **完成判定（确认为既定设计，非缺陷）**：志愿者所有必修课程 `progressPercent` 均达到 **100%**（`progressStatus=COMPLETED`）后，后端自动将 `registrationStep` 置为 `STEP_4_COMPLETED` 并 `verified=true`——**该判定不校验测验是否通过**，只要每门课都完整学过一遍即可转正，测验分数不影响接单资格，这是产品侧确认过的行为，前端无需额外拦截。
+- **errorCode 速查**（均为 HTTP 400，仅 `errorCode` 不同，前端可按需分支）：`TRAINING_COURSE_NOT_FOUND` 课程不存在 / `TRAINING_STEP_NOT_REACHED` 注册步骤未到培训阶段 / `TRAINING_PREREQUISITE_NOT_MET` 前置课程未完成 / `TRAINING_PROGRESS_REGRESSION` 进度倒退 / `TRAINING_PROGRESS_RATE_ANOMALY` 提交速率异常 / `TRAINING_PROGRESS_CONFLICT` 并发冲突需重试 / `TRAINING_NOT_STARTED` 尚未开始学习该课程 / `TRAINING_QUIZ_LOCKED` 测验未解锁 / `TRAINING_QUESTION_NOT_FOUND` 题目不存在 / `TRAINING_QUESTION_COURSE_MISMATCH` 题目不属于该课程 / `TRAINING_ERROR` 兜底通用错误。
+- **响应 schema**：完整字段定义已同步到 `docs/api_spec.yaml`（`TrainingCourseResponse` / `QuizQuestionResponse` / `QuizResultResponse` / `QuestionResult`），`/v3/api-docs` 也已从泛化 `object` 改为具体 schema。
 
 ### 3.6 志愿者功能
 
@@ -689,7 +729,7 @@ fetch('http://47.114.113.171/api/volunteer/verification', {
 
 文件限制：仅支持 `.jpg/.jpeg/.png/.gif/.webp/.bmp/.pdf`，最大 5MB。
 
-动作活体（step3）为 JSON 请求，非文件上传：先 `POST .../face-verify/init` 拿到 `certifyUrl`，前端在 webview/浏览器中打开完成交互，再轮询 `POST .../face-verify/result`。
+动作活体（step3）为 JSON 请求，非文件上传：先 `POST .../face-verify/init` 拿到 `certifyId`，客户端用阿里云 App SDK（`AliyunFaceAuthFacade.verify(certifyId)`）直接完成交互，再轮询 `POST .../face-verify/result`。
 
 ---
 

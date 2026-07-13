@@ -22,7 +22,7 @@ class TestFaceVerifyServiceImplTest {
     @DisplayName("init 返回非空 certifyId + 包含该 id 的 certifyUrl")
     void initFaceVerify_returnsCertifyIdAndUrl() {
         FaceVerifyInitResult result = stub.initFaceVerify(
-                "张三", "110101199001011234", "{\"device\":\"ios\"}",
+                "20", "张三", "110101199001011234", "{\"device\":\"ios\"}",
                 "https://example.com/cb", "outer-1");
 
         assertThat(result.getCertifyId()).isNotBlank();

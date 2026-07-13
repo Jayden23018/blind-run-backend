@@ -28,7 +28,7 @@ public class TestFaceVerifyServiceImpl implements FaceVerifyService {
     private static final String TEST_CERTIFY_URL = "https://test.example.com/face-verify?certifyId=";
 
     @Override
-    public FaceVerifyInitResult initFaceVerify(String certName, String certNo, String metaInfo,
+    public FaceVerifyInitResult initFaceVerify(String userId, String certName, String certNo, String metaInfo,
                                                String returnUrl, String outerOrderNo) {
         String certifyId = UUID.randomUUID().toString().replace("-", "");
         log.info("[TestFaceVerify] initFaceVerify: certifyId={}（测试桩，需在 certifyId 末尾追加 _PASS/_REJECT 控制结果）", certifyId);

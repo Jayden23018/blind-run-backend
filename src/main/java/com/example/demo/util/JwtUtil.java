@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import javax.crypto.SecretKey;
 import java.util.Date;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * JWT 工具类 —— 负责生成和验证 JWT 令牌
@@ -96,6 +97,7 @@ public class JwtUtil {
     public String generateToken(Long userId, String csRole, String userRole) {
         var builder = Jwts.builder()
                 .subject(String.valueOf(userId))
+                .id(UUID.randomUUID().toString())
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + expiration));
 

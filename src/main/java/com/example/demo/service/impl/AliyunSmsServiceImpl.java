@@ -5,6 +5,8 @@ import com.aliyun.dysmsapi20170525.models.SendSmsRequest;
 import com.aliyun.dysmsapi20170525.models.SendSmsResponse;
 import com.aliyun.dysmsapi20170525.models.SendSmsResponseBody;
 import com.aliyun.teaopenapi.models.Config;
+import com.example.demo.exception.ErrorCode;
+import com.example.demo.exception.SmsSendException;
 import com.example.demo.service.SmsService;
 import com.example.demo.service.SmsTemplate;
 import com.example.demo.util.PhoneMaskUtils;
@@ -91,6 +93,10 @@ public class AliyunSmsServiceImpl implements SmsService {
             if (!"OK".equals(body.getCode())) {
                 log.error("阿里云短信发送失败: 手机号={}, 模板={}, Code={}, Message={}",
                         PhoneMaskUtils.mask(phone), template, body.getCode(), body.getMessage());
+                if ("isv.BUSINESS_LIMIT_CONTROL".equals(body.getCode())) {
+                    throw new SmsSendException(ErrorCode.SMS_SEND_LIMIT_EXCEEDED,
+                            "该手机号短信发送过于频繁，请稍后再试");
+                }
                 throw new RuntimeException("短信发送失败: " + body.getMessage());
             }
 

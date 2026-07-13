@@ -21,4 +21,6 @@ public class TrainingCourseResponse {
     private TrainingProgressStatus progressStatus; // 该用户的进度
     private Integer progressPercent;
     private Boolean isCompleted;
+    private Boolean canTakeQuiz; // progressPercent >= 95 才能测验
+    private String quizLockedReason; // canTakeQuiz=false 时的原因说明，可直接展示；已解锁时为 null
 }

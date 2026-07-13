@@ -7,7 +7,7 @@
 > - 新评审发现的问题，按优先级（P0 > P1 > P2）追加到「待处理」对应区块。
 > - 每条标注信息可信度：**【已确证】**（读代码/文档确认）或 **【⚠️ 待核实】**（概括，需进一步核实）。
 
-**最近更新**：2026-07-08（V2 志愿者 Step1 二要素失败仍推进到 Step3 导致 Step3 init 报"身份信息格式不正确"，已修复）
+**最近更新**：2026-07-13（S11：登出黑名单粒度从"按用户整体撤销"改为"按单个 token 撤销"，修复选角色重发 Token 场景下登出误杀其他有效 Token 的问题；已修复本地代码并测试通过，待部署到生产）
 
 ---
 
@@ -15,7 +15,7 @@
 
 | 优先级 | 已解决 | 待处理 |
 |--------|--------|--------|
-| P0（影响核心功能/安全） | ✅ 5 / 5 | 0 |
+| P0（影响核心功能/安全） | ✅ 9 / 9 | 0 |
 | P1（重要，应修） | ✅ 15 / 15 | 1（SMS-A3：短信模板参数格式） |
 | P2（增强/优化） | ✅ 8 / 8 | 2（T2/T3，文档缺口） |
 
@@ -198,6 +198,49 @@
 - **前端须知**：① Step1 收到 `ID_INFO_INVALID` → 停在 Step1 提示核对；② Step3 init 收到 `ID_INFO_INVALID` → 调 `/status` 刷新，步骤已回退到 `STEP_1_BASIC_INFO`。
 - **验证**：`VolunteerRegistrationServiceTest` 全部通过（2 个断言对齐新行为 + 1 个新增 trim/大写归一化用例）。
 
+### [P0] V3 · InitFaceVerify `ProductCode` 无效值导致动作活体认证 100% 返回 401 — `2026-07-10` 【已确证】
+
+- **问题**：`AliyunIdVerifyService.initFaceVerify` 中 `InitFaceVerifyRequest.setProductCode("SMART")`——查证阿里云官方 `InitFaceVerify` 接口文档（页面标题"InitFaceVerify-发起认证请求"）确认 `ProductCode` **唯一合法取值是 `LR_FR`**，`"SMART"` 从未是有效值。真正控制活体检测类型（眨眼/点头/静默等）的是 `Model` 字段（默认 `LIVENESS`，我们代码未显式设置，走默认即可），与 `ProductCode` 无关——命名相近导致此前排查方向被误导。
+- **影响**：志愿者 Step3 动作活体认证**全量 100% 失败**，每次 `init` 调用均返回 `code=401, message=参数非法`，志愿者注册流程在 Step3 彻底卡死，无法进入 STEP_4_COMPLETED、无法接单。此前多轮针对 `sceneId`/`metaInfo`/身份信息格式的排查方向均未命中根因（详见 V2，V2 修复的是另一个真实但非本次根因的问题）。
+- **方案**：`ProductCode` 由 `"SMART"` 改为 `"LR_FR"`；同步更正类注释。
+- **涉及文件**：`AliyunIdVerifyService.initFaceVerify`（`ProductCode` 字段 + 类级 Javadoc）
+- **部署**：已通过 `deploy.sh` 部署到生产（备份 `demo-0.0.1-SNAPSHOT.jar.bak.20260709_224747`，健康检查通过）。
+- **验证**：生产 E2E 复测——用白名单测试号 `15602964366`（固定验证码 `000000`）注销旧账号（userId=9）→ 重新注册为志愿者（userId=20）→ Step1 实名核验通过 → Step3 `face-verify/init` 报错从修复前的 `401 参数非法` 变为 `400 参数不能为空(userId)`，证明 `ProductCode` 校验层已通过，根因确认修复。
+- **⚠️ 更正（见 V4）**：本条最初结论"剩余 `400 参数不能为空(userId)` 是 metaInfo 需真机 SDK 采集、curl 无法伪造的接口设计边界"**已被证伪**——真机账号（userId=19，真实 Aliyun SDK 采集的 metaInfo）复现了完全相同的错误，说明这是代码缺陷而非测试边界，根因见 V4。
+
+### [P0] V4 · InitFaceVerify 遗漏必填 `UserId` 字段导致动作活体 100% 返回 400 — `2026-07-10` 【已确证】
+
+- **问题**：`AliyunIdVerifyService.initFaceVerify` 构建 `InitFaceVerifyRequest` 时从未调用 `.setUserId(...)`。经提取阿里云 SDK 源码包（`cloudauth20190307-2.1.1-sources.jar`）确认 `InitFaceVerifyRequest` 存在 `UserId`（String）字段且为必填——`ProductCode=LR_FR` 场景下阿里云服务端强校验此字段，未传即报 `400 参数不能为空(userId)`。此前误判为"curl 伪造 metaInfo 触发的预期边界"（见 V3 更正），实为真实代码缺陷：真机账号 userId=19（用户 iOS 端上报，真实 SDK 采集的合法 metaInfo）与本地测试账号 userId=20 均 100% 复现同一报错，与 metaInfo 真实性无关，与账号身份/JWT 映射无关。
+- **影响**：志愿者 Step3 动作活体认证在 ProductCode 修复（V3）后依然 **100% 失败**，`init` 恒定返回 `400 参数不能为空(userId)`，注册流程卡死在 Step3，无法进入 STEP_4_COMPLETED、无法接单。
+- **方案**：服务端本就在 `VolunteerRegistrationService.initFaceVerify(Long userId, ...)` 持有从 JWT 解析出的 `userId`（controller 层 `SecurityUtils.getCurrentUserId()` 传入），只需将其透传到 SDK 请求即可——**不新增前端契约字段，不改 OpenAPI**：
+  - `FaceVerifyService.initFaceVerify(...)` 接口签名新增 `String userId` 首参
+  - `AliyunIdVerifyService.initFaceVerify` 内 `InitFaceVerifyRequest` 新增 `.setUserId(userId)`
+  - `TestFaceVerifyServiceImpl`（测试桩）签名同步更新（忽略该参数）
+  - 调用方 `VolunteerRegistrationService.initFaceVerify` 传入 `userId.toString()`
+- **涉及文件**：`FaceVerifyService.java`、`AliyunIdVerifyService.java`、`TestFaceVerifyServiceImpl.java`、`VolunteerRegistrationService.java`、`TestFaceVerifyServiceImplTest.java`、`VolunteerRegistrationServiceTest.java`（测试签名同步）
+- **部署**：已通过 `deploy.sh` 部署到生产（备份 `demo-0.0.1-SNAPSHOT.jar.bak.20260710_112900`，健康检查通过）。
+- **验证**：`gradlew compileJava` 通过；`gradlew test` 全量 177 项通过（含 `TestFaceVerifyServiceImplTest`、`VolunteerRegistrationServiceTest`）。生产 E2E 复测——用户 userId=20 + 伪造 metaInfo 调用 Step3 init，服务端日志确认阿里云返回 `code=200, message=success`（此前是 `400 参数不能为空(userId)`），仅因 metaInfo 非真机 SDK 采集导致 `ResultObject` 缺失（`认证服务返回不完整`）——证明 `UserId` 校验层已通过，根因确认修复；剩余的 `ResultObject` 缺失需真机 H5Face/RPWeb SDK 采集的合法 metaInfo 才能验证，待前端联调最终确认 userId=19/真机场景。
+  - **⚠️ 更正（见 V5）**：此处判断有误，缺失的不是真机 metaInfo，而是后端将 `certifyUrl` 错误地当作必填字段——详见 V5。
+- **教训**：SDK 报错文案本身就是最权威的一手证据（`参数不能为空(userId)` 已明确点名字段），不应用"测试数据不够真实"这类假设去解释一个明确指名道姓的服务端校验错误；阿里云官方文档页面是 JS 渲染 SPA，`fetch`/`WebFetch` 类工具抓不到正文，直接提取 Maven 缓存里的 SDK sources jar 读源码比啃文档更快更准确。
+
+### [P0] V5 · InitFaceVerify 误将 `certifyUrl` 当必填字段，App SDK 场景本无该值 — `2026-07-10` 【已确证，待生产验证】
+
+- **问题**：V4 修复 `UserId` 后，生产 E2E 复测出现新错误 `认证服务返回不完整`（InitFaceVerify `ResultObject` 缺失）。V4 收尾时误判为"metaInfo 非真机 SDK 采集所致"，该假设已被证伪。经 iOS 开发详细反馈核实：本项目 iOS 端使用阿里云**原生 App SDK 流程**（`AliyunFaceAuthFacade` 2.3.48），真实 InitFaceVerify 响应仅含 `Code`/`Message`/`ResultObject.CertifyId`——`CertifyUrl` **只在 H5/Web 集成场景才返回**，本项目并未使用该场景。而后端 `AliyunIdVerifyService.parseInitResult()` 却要求响应中 `certifyId` **和** `certifyUrl` 同时非空才判定成功，导致每一次真实 App SDK 响应都被错误地当作"不完整"而拒绝——错误原因正是响应正确地缺少了一个本就不该有的字段。
+- **影响**：志愿者 Step3 动作活体认证在 V4（UserId）修复后依然 **100% 失败**（表现为 `认证服务返回不完整`），注册流程卡死在 Step3，无法进入 STEP_4_COMPLETED、无法接单，与 V4 是同一功能点上连续第二次被后端逻辑本身挡住。
+- **方案**：`AliyunIdVerifyService.parseInitResult()` 成功判定条件由 `resultObject.getCertifyId() != null && resultObject.getCertifyUrl() != null` 改为仅要求 `resultObject.getCertifyId() != null`。同步更新 `AliyunIdVerifyService.java`、`FaceVerifyService.java`（接口 Javadoc）、`VolunteerRegistrationService.java`（类/方法注释）说明这是 App SDK 流程而非 H5/Web，响应中 `certifyUrl` 将正常为 `null`——客户端（iOS）直接用 `certifyId` 调 `AliyunFaceAuthFacade.verify(certifyId)`，不需要 URL。不改客户端请求契约（init 入参仍只是 `metaInfo`）；响应 DTO 结构不变（仍保留 `certifyUrl` 字段以兼容旧 JSON），但 App SDK 流程下会恒为 `null`。
+- **涉及文件**：`AliyunIdVerifyService.java`（`parseInitResult` 逻辑 + 注释）、`FaceVerifyService.java`（接口 Javadoc）、`VolunteerRegistrationService.java`（注释，无逻辑变化——该类本就只是透传 certifyId/certifyUrl/status/message）、`docs/api_spec.yaml`（`FaceVerifyInitResponse` schema：`certifyUrl`/`certifyId` 改为可空、`required` 数组仅保留 `status`；init/result 端点描述改为 App SDK 流程说明，不再提"打开 certifyUrl"）、`docs/frontend-guide.md`（同步 App SDK 流程更正，3 处）。
+- **验证**：`gradlew compileJava` 通过；`gradlew test` 全量 177/177 通过（`AliyunIdVerifyService` 原无用例断言 certifyUrl 必填行为，无需改动；`TestFaceVerifyServiceImplTest` 用的是无关的 `TestFaceVerifyServiceImpl` 测试桩，仍返回 URL，因调用方已不再要求该字段而不受影响）。**尚未部署到生产，也未经真机验证**——下一步待办，非已完成项。
+- **教训**：这是同一功能点连续第二次被修正（V3 被 V4 修正；如今 V4 收尾时"预期能拿到 certifyUrl，待真机验证"的假设本身又被 V5 修正）——当错误是从局部/伪造测试数据（虚构 metaInfo、非真机）推断出来时，不能想当然地认为剩余差距"只是测试数据不够真实"，而应先核实**成功判定标准本身**是否符合实际集成契约（App SDK 与 H5/Web 的响应结构不同）。直接找到有真实接口响应日志的客户端开发者当面核实，比单纯从合成测试的报错信息去猜测根因更可靠。
+
+### [P0] S11 · 登出误撤销同账号其他有效 Token（选角色重发 Token 场景） — `2026-07-13` 【已确证】
+
+- **问题**：云端契约验证复现（测试用户 23）：手机验证码登录拿 Token A → `POST /api/user/role` 选角色拿替换 Token B（两者均曾有效）→ 用 Token A 调 `POST /api/auth/logout` → Token B 也随之失效。根因是 S1（2026-06-17）修复引入的黑名单机制按**用户整体**撤销：`jwt:blacklist:{userId}` 只存一个"拉黑时刻"时间戳，任何 `iat ≤ 该时刻` 的 token 全部失效——Token B 的签发时间必然早于登出调用时刻，因此被一并误杀。这不是随机边缘场景，而是本项目"选角色返回新 Token，客户端须替换本地存储"这一正常流程天然会触发的路径。
+- **影响**：客户端只要有一处仍持有登出前签发的旧 token（缓存、时序竞态等）去调登出，就会把当前正在使用的新 token 一并撤销，用户被迫重新登录；且账号自助清理（本人登出后自助注销）在此路径下会被连锁锁死到自身 token 也失效。
+- **方案**：登出改为**按单个 token 撤销**（新增 JWT `jti` claim + Redis key `jwt:blacklist:jti:{jti}`，TTL=该 token 剩余有效期），不再影响同账号其他 token；账号注销/管理员封禁场景保留原有按用户整体撤销的机制（`blacklistUserWithMaxTtl`，语义上就需要撤销全部 token，未改动）。升级前签发、无 jti 的旧 token 无法单独定位，退化为按用户整体撤销（影响随 TTL 到期自然收敛）。`JwtFilter`/`JwtHandshakeInterceptor` 同时检查按 jti 撤销和按用户整体撤销两种情况。**顺带修复**两处独立缺口：`UserService.deleteAccount()` 活动订单拦截的 errorCode 从通用的 `ORDER_STATUS_NOT_ALLOWED` 改为专用的 `ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED`（新增于 `ErrorCode` 枚举，HTTP 409）；`DELETE /api/users/{id}` 成功响应补充 `phoneReusable: true`、`allTokensInvalidated: true` 字段。
+- **涉及文件**：`JwtUtil`（`jti` claim）、`TokenBlacklistService`（新增 `blacklistToken`/`isTokenBlacklisted`，移除 `blacklistUserFromToken`）、`JwtFilter`、`JwtHandshakeInterceptor`、`AuthController`、`CsAuthController`（登出改调 `blacklistToken`）、`ErrorCode`（新增 `ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED`）、`UserService.deleteAccount`、`UserController.deleteUser`、`TokenBlacklistServiceTest`
+- **测试用户 23 处理**：无需人工/管理员数据库介入。当前失效的是"登出前已签发"的旧 token；只要用原手机号重新走验证码登录拿一个全新 token（签发时间晚于旧黑名单时刻），即可正常调用 `GET /api/auth/me` 与 `DELETE /api/users/23` 自助完成软删除。
+- **⚠️ 待办（未完成）**：本次为本地代码修复+单元测试验证，**尚未部署到 `47.114.113.171` 生产环境**。部署后需按用户提供的检查清单复测：①删除他人 ID → 403（已有逻辑，未改动）；②有活动订单删除 → 409 + `ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED`；③软删除成功；④删除后该账户全部 token → 401（`blacklistUserWithMaxTtl` 未改动，应仍生效）；⑤原手机号可重新注册；⑥删除响应含 `success/phoneReusable/allTokensInvalidated` 三字段。同时需同步 `docs/api_spec.yaml`（logout 契约说明「仅撤销当前 token」+ 补充删除响应字段）、`docs/frontend-guide.md`、`docs/test-accounts.md`，并通知 iOS 端登出行为契约已确认为"仅当前 token"（与其原假设一致，无需改客户端）。
+- **验证**：`gradlew compileJava`/`compileTestJava` 通过；`TokenBlacklistServiceTest`（含新增用例，覆盖"登出 A 不影响 B"场景）通过；`gradlew test` 121 项非 Docker 依赖用例通过（13 项 Testcontainers 集成测试因本地无 Docker daemon 未跑，非本次改动引入的回归）。
 
 ### [P2] A8 · 派单进度反馈 + 修复模板缺失 bug — `2026-06-19` 【已确证】
 

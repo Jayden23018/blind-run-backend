@@ -45,8 +45,9 @@ public class JwtFilter extends OncePerRequestFilter {
             if (claims != null) {
                 Long userId = Long.parseLong(claims.getSubject());
 
-                // 检查 token 黑名单（用户已登出/注销）—— 按签发时间比对，重新登录的新 token 不受影响
-                if (tokenBlacklistService.isBlacklisted(userId, claims.getIssuedAt())) {
+                // 检查 token 黑名单：单 token 撤销（登出）或按用户整体撤销（注销/封禁）
+                if (tokenBlacklistService.isTokenBlacklisted(claims.getId())
+                        || tokenBlacklistService.isBlacklisted(userId, claims.getIssuedAt())) {
                     filterChain.doFilter(request, response);
                     return;
                 }

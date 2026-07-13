@@ -10,15 +10,16 @@ package com.example.demo.service;
 public interface FaceVerifyService {
 
     /**
-     * 发起动作活体认证，返回 certifyId + 前端要打开的 CertifyUrl。
+     * 发起动作活体认证，返回 certifyId（App SDK 场景，客户端用原生 SDK 消费，无需 certifyUrl）。
      *
+     * @param userId      业务侧用户ID（阿里云 InitFaceVerify 必填字段，非新增前端契约——服务端从 JWT 派生）
      * @param certName    身份证姓名
      * @param certNo      身份证号码
      * @param metaInfo    前端设备指纹（阿里云 metaInfo，JSON 字符串）
      * @param returnUrl   动作活体完成后前端回跳地址（可选）
      * @param outerOrderNo 业务侧订单号（用于阿里云侧幂等）
      */
-    FaceVerifyInitResult initFaceVerify(String certName, String certNo, String metaInfo,
+    FaceVerifyInitResult initFaceVerify(String userId, String certName, String certNo, String metaInfo,
                                         String returnUrl, String outerOrderNo);
 
     /**

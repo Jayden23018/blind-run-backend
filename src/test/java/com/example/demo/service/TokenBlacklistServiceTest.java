@@ -20,9 +20,10 @@ import static org.mockito.Mockito.*;
 /**
  * TokenBlacklistService 单元测试
  *
- * 黑名单采用"按签发时间比对"：blacklistUser 存"拉黑时刻"时间戳（set 覆盖写），
- * isBlacklisted(userId, issuedAt) 判定 token 签发时间是否早于该时刻。
- * 这样用户登出后重新登录拿到的新 token 不会被旧黑名单锁死。
+ * 两套机制：
+ * - blacklistUser/isBlacklisted：按用户整体撤销（注销/封禁），存"拉黑时刻"时间戳，
+ *   iat 早于该时刻的 token 全部失效，重新登录的新 token 不受影响。
+ * - blacklistToken/isTokenBlacklisted：按 jti 单 token 撤销（登出），只影响这一个 token。
  */
 @ExtendWith(MockitoExtension.class)
 class TokenBlacklistServiceTest {
@@ -114,39 +115,88 @@ class TokenBlacklistServiceTest {
         assertTrue(service.isBlacklisted(42L, null));
     }
 
-    // === blacklistUserFromToken ===
+    // === blacklistToken：按 jti 单 token 撤销（登出）===
 
     @Test
-    void blacklistUserFromToken_parsesAndBlacklists() {
+    void blacklistToken_setsJtiKeyWithTtl() {
         Claims claims = mock(Claims.class);
-        when(claims.getSubject()).thenReturn("42");
+        when(claims.getId()).thenReturn("jti-123");
         when(claims.getExpiration()).thenReturn(new Date(System.currentTimeMillis() + 7200000));
         when(jwtUtil.parseToken("valid.token")).thenReturn(claims);
 
-        service.blacklistUserFromToken("valid.token");
+        service.blacklistToken("valid.token");
 
+        verify(valueOps).set(eq("jwt:blacklist:jti:jti-123"), eq("1"), anyLong(), eq(TimeUnit.SECONDS));
+    }
+
+    @Test
+    void blacklistToken_fallsBackToWholeUser_whenNoJti() {
+        Claims claims = mock(Claims.class);
+        when(claims.getId()).thenReturn(null);
+        when(claims.getSubject()).thenReturn("42");
+        when(claims.getExpiration()).thenReturn(new Date(System.currentTimeMillis() + 7200000));
+        when(jwtUtil.parseToken("legacy.token")).thenReturn(claims);
+
+        service.blacklistToken("legacy.token");
+
+        // 旧 token 无 jti，无法单独定位 —— 退化为按用户整体撤销
         verify(valueOps).set(eq("jwt:blacklist:42"), anyString(), anyLong(), eq(TimeUnit.SECONDS));
     }
 
     @Test
-    void blacklistUserFromToken_skips_whenTokenInvalid() {
+    void blacklistToken_skips_whenTokenInvalid() {
         when(jwtUtil.parseToken("bad.token")).thenReturn(null);
 
-        service.blacklistUserFromToken("bad.token");
+        service.blacklistToken("bad.token");
 
         verifyNoInteractions(valueOps);
     }
 
     @Test
-    void blacklistUserFromToken_skips_whenTokenExpired() {
+    void blacklistToken_skips_whenTokenExpired() {
         Claims claims = mock(Claims.class);
-        when(claims.getSubject()).thenReturn("42");
         when(claims.getExpiration()).thenReturn(new Date(System.currentTimeMillis() - 1000));
         when(jwtUtil.parseToken("expired.token")).thenReturn(claims);
 
-        service.blacklistUserFromToken("expired.token");
+        service.blacklistToken("expired.token");
 
         verifyNoInteractions(valueOps);
+    }
+
+    // === isTokenBlacklisted ===
+
+    @Test
+    void isTokenBlacklisted_returnsTrue_whenJtiKeyExists() {
+        when(redisTemplate.hasKey("jwt:blacklist:jti:jti-123")).thenReturn(true);
+
+        assertTrue(service.isTokenBlacklisted("jti-123"));
+    }
+
+    @Test
+    void isTokenBlacklisted_returnsFalse_whenJtiKeyMissing() {
+        when(redisTemplate.hasKey("jwt:blacklist:jti:jti-123")).thenReturn(false);
+
+        assertFalse(service.isTokenBlacklisted("jti-123"));
+    }
+
+    @Test
+    void isTokenBlacklisted_returnsFalse_whenJtiNull() {
+        assertFalse(service.isTokenBlacklisted(null));
+        verifyNoInteractions(redisTemplate);
+    }
+
+    @Test
+    void blacklistToken_doesNotAffectOtherTokens_sameUser() {
+        // 场景复现：Token A 登出不应影响同账号的 Token B（不同 jti）
+        Claims claimsA = mock(Claims.class);
+        when(claimsA.getId()).thenReturn("jti-A");
+        when(claimsA.getExpiration()).thenReturn(new Date(System.currentTimeMillis() + 7200000));
+        when(jwtUtil.parseToken("token.A")).thenReturn(claimsA);
+
+        service.blacklistToken("token.A");
+
+        verify(valueOps).set(eq("jwt:blacklist:jti:jti-A"), eq("1"), anyLong(), eq(TimeUnit.SECONDS));
+        verify(valueOps, never()).set(eq("jwt:blacklist:jti:jti-B"), anyString(), anyLong(), any(TimeUnit.class));
     }
 
     // === blacklistUserWithMaxTtl ===

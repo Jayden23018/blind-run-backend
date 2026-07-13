@@ -19,7 +19,7 @@ import org.springframework.stereotype.Service;
 /**
  * 阿里云金融级实人认证服务
  *
- * 志愿者端：InitFaceVerify / DescribeFaceVerify（动作活体，productCode=SMART）
+ * 志愿者端：InitFaceVerify / DescribeFaceVerify（动作活体，productCode=LR_FR，唯一合法取值）
  * 盲人端：Id2MetaVerify（二要素核验）
  * 主备端点自动切换（全局 → Beijing）
  *
@@ -47,20 +47,21 @@ public class AliyunIdVerifyService implements FaceVerifyService {
     private static final String BACKUP_ENDPOINT = "cloudauth.cn-beijing.aliyuncs.com";
 
     /**
-     * 发起动作活体认证（InitFaceVerify，productCode=SMART）。
-     * 返回 certifyId + 前端要打开的 CertifyUrl；失败时 certifyId/certifyUrl 为 null。
+     * 发起动作活体认证（InitFaceVerify，App SDK 场景）。
+     * 返回 certifyId（客户端用 AliyunFaceAuthFacade 原生 SDK 消费，无需 certifyUrl）；失败时 certifyId 为 null。
      */
     @Override
-    public FaceVerifyInitResult initFaceVerify(String certName, String certNo, String metaInfo,
+    public FaceVerifyInitResult initFaceVerify(String userId, String certName, String certNo, String metaInfo,
                                                String returnUrl, String outerOrderNo) {
         Long sceneId = parseFaceVerifySceneId();
         InitFaceVerifyRequest request = new InitFaceVerifyRequest()
                 .setSceneId(sceneId)
                 .setOuterOrderNo(outerOrderNo)
-                .setProductCode("SMART")          // 动作活体方案
+                .setProductCode("LR_FR")          // InitFaceVerify 唯一合法取值（官方文档确认，SMART 不是有效值）
                 .setCertType("IDENTITY_CARD")
                 .setCertName(certName)
                 .setCertNo(certNo)
+                .setUserId(userId)                // 阿里云必填字段，此前未设置导致 400 参数不能为空(userId)
                 .setMetaInfo(metaInfo)
                 .setReturnUrl(returnUrl);
 
@@ -148,21 +149,22 @@ public class AliyunIdVerifyService implements FaceVerifyService {
 
         String code = body.getCode();
         if (!"200".equals(code)) {
-            log.warn("InitFaceVerify API 返回错误: code={}, message={}", code, body.getMessage());
+            log.warn("InitFaceVerify API 返回错误: code={}, message={}, requestId={}",
+                    code, body.getMessage(), body.getRequestId());
             return new FaceVerifyInitResult(null, null, describeInitErrorCode(code, body.getMessage()));
         }
 
-        if (body.getResultObject() == null
-                || body.getResultObject().getCertifyId() == null
-                || body.getResultObject().getCertifyUrl() == null) {
+        if (body.getResultObject() == null || body.getResultObject().getCertifyId() == null) {
             log.warn("InitFaceVerify ResultObject 缺失: code={}, message={}", code, body.getMessage());
             return new FaceVerifyInitResult(null, null, "认证服务返回不完整");
         }
 
+        // App SDK 场景（当前接入方式）官方响应只含 CertifyId，无 CertifyUrl——
+        // CertifyUrl 仅 H5/Web 场景返回，此处按 App SDK 契约不作强制要求
         return new FaceVerifyInitResult(
                 body.getResultObject().getCertifyId(),
                 body.getResultObject().getCertifyUrl(),
-                "已发起，请在前端完成动作活体");
+                "已发起，请在客户端 SDK 完成动作活体");
     }
 
     private FaceVerifyResult parseDescribeResult(DescribeFaceVerifyResponse response) {
@@ -174,7 +176,8 @@ public class AliyunIdVerifyService implements FaceVerifyService {
 
         String code = body.getCode();
         if (!"200".equals(code)) {
-            log.warn("DescribeFaceVerify API 返回错误: code={}, message={}", code, body.getMessage());
+            log.warn("DescribeFaceVerify API 返回错误: code={}, message={}, requestId={}",
+                    code, body.getMessage(), body.getRequestId());
             return new FaceVerifyResult(false, code, describeInitErrorCode(code, body.getMessage()));
         }
 
@@ -214,9 +217,11 @@ public class AliyunIdVerifyService implements FaceVerifyService {
 
     private String describeInitErrorCode(String code, String message) {
         if (code == null) return "认证服务异常";
+        // 401 是阿里云的通用"参数非法"桶，不止身份证字段（常见诱因：MetaInfo 非真实SDK采集），
+        // 固定文案曾误导排查方向，故连同原始 message 一并返回
         return switch (code) {
-            case "400" -> "请求参数不完整";
-            case "401" -> "身份信息格式不正确";
+            case "400" -> "请求参数不完整（" + message + "）";
+            case "401" -> "参数不合法，请检查身份信息及MetaInfo（" + message + "）";
             case "404" -> "认证场景未配置，请先在阿里云控制台创建动作活体认证场景";
             case "410" -> "未完成OSS授权";
             case "411" -> "RAM账号无权限";

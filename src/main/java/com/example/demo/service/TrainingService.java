@@ -14,6 +14,7 @@ import com.example.demo.entity.TrainingProgress;
 import com.example.demo.entity.TrainingProgressStatus;
 import com.example.demo.entity.TrainingQuizAttempt;
 import com.example.demo.entity.TrainingQuizQuestion;
+import com.example.demo.exception.ErrorCode;
 import com.example.demo.exception.ResourceNotFoundException;
 import com.example.demo.exception.TrainingException;
 import com.example.demo.repository.TrainingCourseRepository;
@@ -24,6 +25,8 @@ import com.example.demo.repository.VolunteerProfileRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,6 +45,9 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 public class TrainingService {
+
+    /** 课程学习进度达到该阈值才能解锁测验 */
+    private static final int QUIZ_UNLOCK_THRESHOLD_PERCENT = 95;
 
     private final TrainingCourseRepository courseRepository;
     private final TrainingProgressRepository progressRepository;
@@ -83,6 +89,9 @@ public class TrainingService {
             TrainingProgressStatus status = progress != null ? progress.getStatus() : TrainingProgressStatus.NOT_STARTED;
             int progressPercent = progress != null ? progress.getProgressPercent() : 0;
             boolean isCompleted = status == TrainingProgressStatus.COMPLETED;
+            boolean canTakeQuiz = progressPercent >= QUIZ_UNLOCK_THRESHOLD_PERCENT;
+            String quizLockedReason = canTakeQuiz ? null
+                    : "课程学习进度需达到 " + QUIZ_UNLOCK_THRESHOLD_PERCENT + "% 才能参加测验（当前 " + progressPercent + "%）";
 
             return new TrainingCourseResponse(
                     course.getId(),
@@ -95,7 +104,9 @@ public class TrainingService {
                     true, // 所有课程都是必修
                     status,
                     progressPercent,
-                    isCompleted
+                    isCompleted,
+                    canTakeQuiz,
+                    quizLockedReason
             );
         }).collect(Collectors.toList());
     }
@@ -107,7 +118,7 @@ public class TrainingService {
     public void submitProgress(Long userId, TrainingProgressRequest request) {
         // 校验课程存在且激活
         TrainingCourse course = courseRepository.findByIdAndIsActiveTrue(request.getCourseId())
-                .orElseThrow(() -> new TrainingException("课程不存在"));
+                .orElseThrow(() -> new TrainingException(ErrorCode.TRAINING_COURSE_NOT_FOUND, "课程不存在"));
 
         // 获取志愿者资料，确认注册步骤
         var profileOpt = volunteerProfileRepository.findByUserId(userId);
@@ -119,7 +130,7 @@ public class TrainingService {
         // 校验：必须在 STEP_4_TRAINING
         if (profile.getRegistrationStep() != RegistrationStep.STEP_4_TRAINING &&
             profile.getRegistrationStep() != RegistrationStep.STEP_4_COMPLETED) {
-            throw new TrainingException("请先完成前面的注册步骤");
+            throw new TrainingException(ErrorCode.TRAINING_STEP_NOT_REACHED, "请先完成前面的注册步骤");
         }
 
         TrainingProgress progress = progressRepository
@@ -135,7 +146,7 @@ public class TrainingService {
                             .findByVolunteerIdAndCourseId(userId, previousCourse.get().getId());
                     if (prevProgress.isEmpty() ||
                         prevProgress.get().getStatus() != TrainingProgressStatus.COMPLETED) {
-                        throw new TrainingException("请先完成前置课程");
+                        throw new TrainingException(ErrorCode.TRAINING_PREREQUISITE_NOT_MET, "请先完成前置课程");
                     }
                 }
             }
@@ -149,7 +160,7 @@ public class TrainingService {
             // 校验进度递增
             if (request.getProgressPercent() <= progress.getProgressPercent() &&
                 request.getProgressPercent() < 100) {
-                throw new TrainingException("进度不能倒退");
+                throw new TrainingException(ErrorCode.TRAINING_PROGRESS_REGRESSION, "进度不能倒退");
             }
 
             // 校验时间合理性：进度增加不能太快
@@ -161,7 +172,7 @@ public class TrainingService {
                 double maxProgressPerSecond = 10.0 / 60.0; // 每秒0.167%
                 double actualProgressPerSecond = (double) progressDelta / timeDeltaSeconds;
                 if (actualProgressPerSecond > maxProgressPerSecond * 10) {
-                    throw new TrainingException("进度提交异常，请正常观看视频");
+                    throw new TrainingException(ErrorCode.TRAINING_PROGRESS_RATE_ANOMALY, "进度提交异常，请正常观看视频");
                 }
             }
         }
@@ -176,7 +187,12 @@ public class TrainingService {
             progress.setCompletedAt(LocalDateTime.now());
         }
 
-        progressRepository.save(progress);
+        try {
+            progressRepository.save(progress);
+        } catch (OptimisticLockingFailureException | DataIntegrityViolationException e) {
+            // 乐观锁冲突（并发更新同一进度）或唯一约束冲突（并发首次插入同一课程进度）
+            throw new TrainingException(ErrorCode.TRAINING_PROGRESS_CONFLICT, "进度提交冲突，请重试");
+        }
 
         // 更新志愿者当前课程
         profile.setCurrentCourseId(request.getCourseId());
@@ -189,12 +205,12 @@ public class TrainingService {
      * 获取测验题目
      */
     public List<QuizQuestionResponse> getQuizQuestions(Long userId, Long courseId) {
-        // 校验课程已完成（100%进度）
+        // 校验课程已完成（进度达到解锁线）
         TrainingProgress progress = progressRepository.findByVolunteerIdAndCourseId(userId, courseId)
-                .orElseThrow(() -> new TrainingException("请先学习课程"));
+                .orElseThrow(() -> new TrainingException(ErrorCode.TRAINING_NOT_STARTED, "请先学习课程"));
 
-        if (progress.getProgressPercent() < 95) {
-            throw new TrainingException("课程学习未完成，不能进行测验");
+        if (progress.getProgressPercent() < QUIZ_UNLOCK_THRESHOLD_PERCENT) {
+            throw new TrainingException(ErrorCode.TRAINING_QUIZ_LOCKED, "课程学习未完成，不能进行测验");
         }
 
         List<TrainingQuizQuestion> questions = questionRepository.findByCourseIdOrderByDisplayOrderAsc(courseId);
@@ -236,19 +252,19 @@ public class TrainingService {
     public QuizResultResponse submitQuizAnswer(Long userId, QuizAnswerRequest request) {
         // 校验课程已完成
         TrainingProgress progress = progressRepository.findByVolunteerIdAndCourseId(userId, request.getCourseId())
-                .orElseThrow(() -> new TrainingException("请先学习课程"));
+                .orElseThrow(() -> new TrainingException(ErrorCode.TRAINING_NOT_STARTED, "请先学习课程"));
 
-        if (progress.getProgressPercent() < 95) {
-            throw new TrainingException("课程学习未完成，不能进行测验");
+        if (progress.getProgressPercent() < QUIZ_UNLOCK_THRESHOLD_PERCENT) {
+            throw new TrainingException(ErrorCode.TRAINING_QUIZ_LOCKED, "课程学习未完成，不能进行测验");
         }
 
         // 获取题目
         TrainingQuizQuestion question = questionRepository.findById(request.getQuestionId())
-                .orElseThrow(() -> new TrainingException("题目不存在"));
+                .orElseThrow(() -> new TrainingException(ErrorCode.TRAINING_QUESTION_NOT_FOUND, "题目不存在"));
 
         // 校验题目属于该课程
         if (!question.getCourseId().equals(request.getCourseId())) {
-            throw new TrainingException("题目不属于该课程");
+            throw new TrainingException(ErrorCode.TRAINING_QUESTION_COURSE_MISMATCH, "题目不属于该课程");
         }
 
         // 判题

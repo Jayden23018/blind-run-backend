@@ -10,12 +10,21 @@ import java.time.LocalDateTime;
  */
 @Data
 @Entity
-@Table(name = "training_progress")
+@Table(name = "training_progress",
+        uniqueConstraints = @UniqueConstraint(name = "uk_training_progress_volunteer_course",
+                columnNames = {"volunteer_id", "course_id"}))
 public class TrainingProgress {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    /**
+     * 乐观锁版本号：防止并发提交进度时后写覆盖先写
+     */
+    @Version
+    @Column(nullable = false)
+    private Long version;
 
     /**
      * 志愿者用户ID

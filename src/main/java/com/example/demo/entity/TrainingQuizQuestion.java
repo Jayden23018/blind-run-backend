@@ -43,7 +43,7 @@ public class TrainingQuizQuestion {
     private String options;
 
     /**
-     * 正确答案数组（JSON格式）：["A"] 或 ["A","C"]
+     * 正确答案数组（JSON格式），存储完整选项文本原文（非字母码），需与 options 中的原文逐字一致：["选项A"] 或 ["选项A","选项C"]
      */
     @Column(nullable = false, columnDefinition = "JSON")
     private String correctAnswer;

@@ -19,7 +19,7 @@ public class QuizAnswerRequest {
     private Long questionId;
 
     @NotEmpty(message = "答案不能为空")
-    private List<String> answers; // ["A"] 或 ["A", "C"]
+    private List<String> answers; // 完整选项文本原文（非字母码），需与 GET /quiz/{courseId} 返回的 options[] 逐字匹配，如 ["选项A"] 或 ["选项A","选项C"]
 
     @NotNull(message = "答题时长不能为空")
     private Integer timeSpentSeconds;

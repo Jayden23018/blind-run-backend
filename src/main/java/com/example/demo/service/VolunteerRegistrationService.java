@@ -25,7 +25,7 @@ import java.util.UUID;
  *
  * 流程（动作活体改造后）：
  *   step1 BASIC_INFO（含身份证姓名+号码，提交时自动 Id2Meta 二要素核验）
- *     → step3 FACE_VERIFY（动作活体：init → 前端打开 CertifyUrl → result 轮询）
+ *     → step3 FACE_VERIFY（动作活体：init → 客户端 App SDK 消费 certifyId → result 轮询）
  *     → step4 TRAINING → COMPLETED
  *   step2（身份证照片上传）已下线；历史数据卡在 STEP_2 的用户在 getRegistrationStatus 自动迁移到 STEP_3。
  */
@@ -106,7 +106,7 @@ public class VolunteerRegistrationService {
 
     /**
      * 发起动作活体认证（step3 第一段）。
-     * 返回阿里云 CertifyUrl，前端打开后由用户完成动作活体。
+     * 返回阿里云 certifyId，客户端用 App SDK（AliyunFaceAuthFacade）消费完成动作活体；certifyUrl 恒为 null（App SDK 场景不返回）。
      */
     @Transactional
     public FaceVerifyInitResponse initFaceVerify(Long userId, FaceVerifyInitRequest request) {
@@ -125,6 +125,7 @@ public class VolunteerRegistrationService {
         }
 
         FaceVerifyInitResult result = faceVerifyService.initFaceVerify(
+                userId.toString(),
                 profile.getIdCardName(),
                 profile.getIdCardNumber(),
                 request.getMetaInfo(),
@@ -249,6 +250,8 @@ public class VolunteerRegistrationService {
     }
 
     private String generateOrderNo(Long userId) {
-        return userId + "_" + UUID.randomUUID().toString().replace("-", "");
+        // 阿里云 OuterOrderNo 限制 ≤32 位英文数字，故不用下划线分隔，并截断兜底
+        String raw = userId + UUID.randomUUID().toString().replace("-", "");
+        return raw.length() > 32 ? raw.substring(0, 32) : raw;
     }
 }

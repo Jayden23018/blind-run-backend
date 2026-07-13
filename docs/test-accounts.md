@@ -192,41 +192,36 @@ curl -X PUT http://localhost:8081/api/volunteer/profile \
     ]
   }'
 
-# 2. 注册 Step 1: 基本信息
+# 2. 注册 Step 1: 基本信息（含身份证姓名+号码，提交时自动二要素核验；核验失败直接拦截，不会进入 Step3）
 curl -X POST http://localhost:8081/api/volunteer/registration/step1 \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "测试志愿者",
     "phone": "13800010002",
+    "idCardName": "张三",
+    "idCardNumber": "440305200001011234",
     "runningExperience": "有2年跑步经验",
     "hasGuidedBefore": false,
     "emergencyExperience": "无"
   }'
 
-# 3. 注册 Step 2: 上传身份证
-curl -X POST http://localhost:8081/api/volunteer/registration/step2/id-card \
+# 3. 注册 Step 3: 动作活体人脸认证（两段式，step2 身份证照片上传已下线）
+# 3a. 发起认证：metaInfo 由前端阿里云 SDK 采集设备指纹后传入
+curl -X POST http://localhost:8081/api/volunteer/registration/step3/face-verify/init \
   -H "Authorization: Bearer <token>" \
-  -F "idCardName=张三" \
-  -F "idCardNumber=440305200001011234" \
-  -F "frontFile=@/path/to/id-front.jpg" \
-  -F "backFile=@/path/to/id-back.jpg"
-
-# 4. 注册 Step 3: 人脸验证
-curl -X POST http://localhost:8081/api/volunteer/registration/step3/face-verify \
-  -H "Authorization: Bearer <token>" \
-  -F "facePhoto=@/path/to/face.jpg"
-
-# 5. 管理员审核身份证（用 CS admin token）
-curl -X POST http://localhost:8081/api/admin/volunteers/review/id \
-  -H "Authorization: Bearer <admin-token>" \
   -H "Content-Type: application/json" \
-  -d '{
-    "userId": 2,
-    "approved": true
-  }'
+  -d '{ "metaInfo": "<真机SDK采集生成>" }'
+# 返回 { certifyId, certifyUrl, status, message }，前端打开 certifyUrl 引导用户完成眨眼/点头等动作
 
-# 6. 注册 Step 4: 培训课程
+# 3b. 轮询认证结果（用 3a 返回的 certifyId）
+curl -X POST http://localhost:8081/api/volunteer/registration/step3/face-verify/result \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{ "certifyId": "<3a返回的certifyId>" }'
+# status: PENDING 继续轮询，APPROVED/REJECTED 为最终结果
+
+# 4. 注册 Step 4: 培训课程
 # 获取课程列表
 curl http://localhost:8081/api/volunteer/registration/training/courses \
   -H "Authorization: Bearer <token>"
@@ -257,28 +252,49 @@ curl -X POST http://localhost:8081/api/volunteer/registration/training/quiz/answ
     "timeSpentSeconds": 10
   }'
 
-# 7. 连接 WebSocket
+# 5. 连接 WebSocket
 # ws://localhost:8081/ws/volunteer?token=<token>
 
-# 8. 上报位置
+# 6. 上报位置
 # 通过 WebSocket 发送: {"type":"LOCATION_UPDATE","lat":39.92,"lng":116.47}
 
-# 9. 响应派单
+# 7. 响应派单
 curl -X POST http://localhost:8081/api/orders/{orderId}/respond \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"action":"ACCEPT"}'
 
-# 10. 首页聚合数据（一次拿全：接单资格/在线位置/覆盖范围/时段/评分/活跃订单/近期记录）
+# 8. 首页聚合数据（一次拿全：接单资格/在线位置/覆盖范围/时段/评分/活跃订单/近期记录）
 curl http://localhost:8081/api/volunteer/dispatch-summary \
   -H "Authorization: Bearer <token>"
 
-# 11. 切换接单开关（开/关）
+# 9. 切换接单开关（开/关）
 curl -X PUT http://localhost:8081/api/volunteer/dispatch-status \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"wantsDispatch": false}'
 ```
+
+### 3.4 培训模块测试专用：卡在 STEP_4_TRAINING 的账号
+
+> 目前**没有预置的**卡在培训阶段的测试账号——`registrationStep` 只有两条赋值路径：正式流程里 Step3 人脸认证通过后置为 `STEP_4_TRAINING`，以及所有课程 100% 完成后置为 `STEP_4_COMPLETED`。要拿到一个稳定停在培训阶段的账号，自己按上面 3.3 的 1~3 步跑一遍（完善资料 → Step1 → Step3 动作活体通过）、**不要提交 Step4 的进度**即可，账号会自然停在 `STEP_4_TRAINING`。
+
+重置某个账号的课程进度/测验作答记录（连表跑一遍，`{userId}` 换成目标志愿者的用户 ID）：
+
+```sql
+-- 重置该志愿者的所有课程学习进度
+DELETE FROM training_progress WHERE volunteer_id = {userId};
+
+-- 重置该志愿者的所有测验作答记录
+DELETE FROM training_quiz_attempts WHERE volunteer_id = {userId};
+
+-- 如果连完成态也要撤回，把 registrationStep 打回培训阶段
+UPDATE volunteer_profile SET registration_step = 'STEP_4_TRAINING' WHERE user_id = {userId};
+```
+
+> `training_progress`/`training_quiz_attempts` 表里的 `volunteer_id` 字段实际存的是 `userId`（非 `volunteer_profile.id`），三条 SQL 的 `{userId}`/`user_id` 是同一个值，可以直接复用。
+>
+> 测验没有次数限制/冷却，`training_quiz_attempts` 只是"每题历史作答"的记录，不清空也不影响重考——清它只是为了让 `GET /training/quiz/{courseId}` 前端展示回到"未作答"的初始状态。
 
 ---
 
@@ -334,6 +350,10 @@ curl -X PUT http://localhost:8081/api/volunteer/dispatch-status \
 检查：
 - token 是否有效（未过期、未登出）
 - 连接的端点是否匹配角色（BLIND → `/ws/blind`，VOLUNTEER → `/ws/volunteer`）
+
+### Q: 登出（logout）会不会把我其他还在用的 token 也弄失效？
+不会（S11，2026-07-13 确认）。`POST /api/auth/logout` 只撤销**本次请求携带的这一个** token，不影响同账号其他有效 token。但要注意：`POST /api/user/role` 选角色后会返回**替换 token**，如果你手里还留着选角色前的旧 token 去调登出，那个旧 token 会失效（这是预期行为），选角色后拿到的新 token 不受影响——所以测试时永远用**最新**的 token。
+账号注销（`DELETE /api/users/{id}`）则相反：会撤销该账户**全部** token（因为账号本身没了）。
 
 ### Q: 手机号格式要求？
 11 位中国手机号：以 1 开头，第二位 3-9。正则：`^1[3-9]\d{9}$`

@@ -13,19 +13,18 @@ import java.util.concurrent.TimeUnit;
 /**
  * Token 黑名单服务 —— 基于 Redis 实现 JWT 吊销
  *
- * Redis key: jwt:blacklist:{userId}
- * TTL: token 剩余有效期（自动过期清理）
- *
- * 适用场景：
- * - 用户主动登出
- * - 用户注销账号（软删除）
- * - 管理员封禁账号
+ * 两套独立机制，互不干扰：
+ * - 按用户整体撤销：key jwt:blacklist:{userId}，值为"拉黑时刻"时间戳，iat ≤ 该时刻的 token 全部失效。
+ *   用于注销账号 / 管理员封禁 —— 这类场景没有单个 token 可指向，必须撤销该用户名下所有 token。
+ * - 按单个 token 撤销：key jwt:blacklist:jti:{jti}，TTL=该 token 剩余有效期。
+ *   用于登出 —— 只吊销当前这一个 token，同账号其他仍在有效期内的 token（如角色选择后签发的替换 token）不受影响。
  */
 @Slf4j
 @Service
 public class TokenBlacklistService {
 
     private static final String REDIS_KEY_PREFIX = "jwt:blacklist:";
+    private static final String TOKEN_JTI_PREFIX = "jwt:blacklist:jti:";
 
     private final StringRedisTemplate redisTemplate;
     private final JwtUtil jwtUtil;
@@ -77,20 +76,38 @@ public class TokenBlacklistService {
     }
 
     /**
-     * 从 token 解析 userId 和过期时间，加入黑名单
-     * 用于登出场景：前端传 token，后端解析后拉黑
+     * 登出场景：只撤销当前这一个 token（按 jti），不影响同账号其他有效 token
+     *
+     * <p>升级前签发、没有 jti 的旧 token 无法单独定位，退化为按用户整体撤销
+     * （该批旧 token 会在 TTL 内自然过期，影响范围随时间收敛）。
      */
-    public void blacklistUserFromToken(String token) {
+    public void blacklistToken(String token) {
         Claims claims = jwtUtil.parseToken(token);
         if (claims == null) {
             return;
         }
-        Long userId = Long.parseLong(claims.getSubject());
         long remainingMs = claims.getExpiration().getTime() - System.currentTimeMillis();
         if (remainingMs <= 0) {
             return;
         }
-        blacklistUser(userId, TimeUnit.MILLISECONDS.toSeconds(remainingMs));
+        String jti = claims.getId();
+        long ttl = TimeUnit.MILLISECONDS.toSeconds(remainingMs);
+        if (jti == null || jti.isBlank()) {
+            blacklistUser(Long.parseLong(claims.getSubject()), ttl);
+            return;
+        }
+        redisTemplate.opsForValue().set(TOKEN_JTI_PREFIX + jti, "1", Math.max(1, ttl), TimeUnit.SECONDS);
+        log.info("token（jti={}）已加入黑名单（单 token 吊销），TTL={}秒", jti, ttl);
+    }
+
+    /**
+     * 检查单个 token 是否被登出撤销（按 jti）
+     */
+    public boolean isTokenBlacklisted(String jti) {
+        if (jti == null || jti.isBlank()) {
+            return false;
+        }
+        return Boolean.TRUE.equals(redisTemplate.hasKey(TOKEN_JTI_PREFIX + jti));
     }
 
     /**

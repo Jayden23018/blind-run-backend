@@ -452,6 +452,12 @@ paths:
     post:
       tags:
       - volunteer-registration-controller
+      summary: 提交单题测验答案
+      description: >-
+        逐题提交（非整卷）。每次提交后立即按"每题最新一次作答"重算整卷得分并返回，允许无限次重复作答。
+        课程进度需 ≥95% 才能作答，否则 HTTP 400。失败均带 errorCode（TRAINING_NOT_STARTED /
+        TRAINING_QUIZ_LOCKED / TRAINING_QUESTION_NOT_FOUND / TRAINING_QUESTION_COURSE_MISMATCH），
+        前端可据此程序化判断，不必强依赖 message 文案。
       operationId: submitQuizAnswer
       requestBody:
         content:
@@ -465,11 +471,25 @@ paths:
           content:
             'application/json':
               schema:
-                type: object
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseObject'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/QuizResultResponse'
+        '400':
+          description: >-
+            题目学习未完成（进度<95%，errorCode=TRAINING_QUIZ_LOCKED）/ 尚未开始学习该课程（errorCode=TRAINING_NOT_STARTED）
+            / 题目不存在（errorCode=TRAINING_QUESTION_NOT_FOUND）/ 题目不属于该课程（errorCode=TRAINING_QUESTION_COURSE_MISMATCH）
   /api/volunteer/registration/training/progress:
     post:
       tags:
       - volunteer-registration-controller
+      summary: 提交学习进度
+      description: >-
+        progressPercent 由客户端计算提交，后端仅做反作弊校验（不可倒退、速率上限），不反算进度。
+        达到 100 时课程状态置为 COMPLETED；若志愿者全部必修课均 COMPLETED，registrationStep
+        自动推进为 STEP_4_COMPLETED（不校验测验是否通过）。
       operationId: submitTrainingProgress
       requestBody:
         content:
@@ -483,15 +503,27 @@ paths:
           content:
             'application/json':
               schema:
-                type: object
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseObject'
+                - type: object
+                  properties:
+                    data:
+                      type: string
+                      example: 进度已更新
+        '400':
+          description: >-
+            课程不存在（errorCode=TRAINING_COURSE_NOT_FOUND）/ 注册步骤未到培训阶段（errorCode=TRAINING_STEP_NOT_REACHED）
+            / 前置课程未完成（errorCode=TRAINING_PREREQUISITE_NOT_MET）/ 进度倒退（errorCode=TRAINING_PROGRESS_REGRESSION）
+            / 提交速率异常（errorCode=TRAINING_PROGRESS_RATE_ANOMALY）/ 并发提交冲突需重试（errorCode=TRAINING_PROGRESS_CONFLICT）
   /api/volunteer/registration/step3/face-verify/init:
     post:
       tags:
       - volunteer-registration-controller
       summary: 发起动作活体认证（Step 3 - init）
       description: 提交 metaInfo（前端用阿里云 JS SDK 采集的设备指纹），调用阿里云
-        InitFaceVerify（SMART 方案）返回 certifyId + certifyUrl。前端打开 certifyUrl
-        引导用户完成动作活体后，轮询 /step3/face-verify/result 获取结果。
+        InitFaceVerify（SMART 方案）返回 certifyId。客户端使用阿里云原生 App SDK
+        （AliyunFaceAuthFacade.verify(certifyId)）直接完成动作活体，无需打开 URL，
+        随后轮询 /step3/face-verify/result 获取结果。
       operationId: initFaceVerify
       requestBody:
         content:
@@ -512,7 +544,8 @@ paths:
       - volunteer-registration-controller
       summary: 查询动作活体认证结果（Step 3 - result）
       description: 根据 certifyId（须与当前用户绑定的 certifyId 一致，防越权）调用阿里云
-        DescribeFaceVerify 查询认证结果。前端在 init 返回后打开 certifyUrl 完成动作活体，
+        DescribeFaceVerify 查询认证结果。客户端在 init 返回后使用 App SDK
+        （AliyunFaceAuthFacade.verify(certifyId)）完成动作活体，
         然后轮询本接口直到 status 变为 APPROVED 或 REJECTED。
       operationId: queryFaceVerifyResult
       requestBody:
@@ -886,6 +919,9 @@ paths:
       tags:
       - cs-auth-controller
       operationId: logout
+      description: >-
+        登出契约（S11，2026-07-13 确认）：只撤销本次请求携带的这一个 token，
+        不影响同账号其他仍在有效期内的 token（如角色选择后签发的替换 token）。
       responses:
         '200':
           description: OK
@@ -990,6 +1026,10 @@ paths:
       tags:
       - auth-controller
       operationId: logout_1
+      description: >-
+        登出契约（S11，2026-07-13 确认）：只撤销本次请求携带的这一个 token，
+        不影响同账号其他仍在有效期内的 token（如 POST /api/user/role 选角色后签发的替换 token）。
+        如需下线同账号全部会话，请调用账号注销（DELETE /api/users/{id}）。
       responses:
         '200':
           description: OK
@@ -1085,6 +1125,10 @@ paths:
     get:
       tags:
       - volunteer-registration-controller
+      summary: 获取课程测验题目
+      description: >-
+        课程进度需 ≥95% 才能获取，否则 HTTP 400（message，暂无 errorCode）。题目顺序与每题选项
+        顺序每次请求随机打乱。
       operationId: getQuizQuestions
       parameters:
       - name: courseId
@@ -1099,11 +1143,24 @@ paths:
           content:
             'application/json':
               schema:
-                type: object
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseObject'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/QuizQuestionResponse'
+        '400':
+          description: >-
+            课程学习未完成（进度<95%，errorCode=TRAINING_QUIZ_LOCKED），不能进行测验 /
+            尚未开始学习该课程（errorCode=TRAINING_NOT_STARTED）
   /api/volunteer/registration/training/courses:
     get:
       tags:
       - volunteer-registration-controller
+      summary: 获取培训课程列表
+      description: 返回全部激活课程及当前用户在每门课程上的学习进度。
       operationId: getTrainingCourses
       responses:
         '200':
@@ -1111,7 +1168,14 @@ paths:
           content:
             'application/json':
               schema:
-                type: object
+                allOf:
+                - $ref: '#/components/schemas/ApiResponseObject'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/TrainingCourseResponse'
   /api/volunteer/registration/status:
     get:
       tags:
@@ -1148,6 +1212,11 @@ paths:
       tags:
       - user-controller
       operationId: deleteUser
+      description: >-
+        注销账号（软删除）。只能注销自己（否则 403）；有进行中订单会被拦截
+        （409 + errorCode=ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED）。
+        成功后立即撤销该账户全部 token（与登出的单 token 撤销不同），
+        原手机号释放可供重新注册。
       parameters:
       - name: id
         in: path
@@ -1163,6 +1232,20 @@ paths:
             'application/json':
               schema:
                 type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  phoneReusable:
+                    type: boolean
+                    example: true
+                  allTokensInvalidated:
+                    type: boolean
+                    example: true
+        '403':
+          description: 只能注销自己的账号
+        '409':
+          description: 有进行中的订单，无法注销（errorCode=ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED）
   /api/orders/{orderId}/call/records:
     get:
       tags:
@@ -1563,6 +1646,9 @@ components:
       - timeSpentSeconds
     TrainingProgressRequest:
       type: object
+      description: >-
+        progressPercent 由客户端计算并直接提交（后端不反算），仅用于反作弊校验：不允许倒退（除非提交
+        100 完成态，可重复提交），且提交速率不能超过约 10 倍正常观看速度，否则 400。
       properties:
         courseId:
           type: integer
@@ -1585,6 +1671,117 @@ components:
       - lastPositionSeconds
       - progressPercent
       - timeSpentSeconds
+    TrainingCourseResponse:
+      type: object
+      description: content 为 HTML 富文本；videoUrl 为空时前端应渲染 content，非空时优先播放视频。
+      properties:
+        id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        description:
+          type: string
+        durationMinutes:
+          type: integer
+          format: int32
+        videoUrl:
+          type: string
+          nullable: true
+        content:
+          type: string
+          description: HTML 富文本课程内容
+        displayOrder:
+          type: integer
+          format: int32
+        isRequired:
+          type: boolean
+          description: 当前所有课程均为必修，恒为 true
+        progressStatus:
+          type: string
+          enum:
+          - NOT_STARTED
+          - IN_PROGRESS
+          - COMPLETED
+        progressPercent:
+          type: integer
+          format: int32
+        isCompleted:
+          type: boolean
+        canTakeQuiz:
+          type: boolean
+          description: progressPercent >= 95 才为 true，即测验是否已解锁
+        quizLockedReason:
+          type: string
+          nullable: true
+          description: canTakeQuiz=false 时的原因说明，可直接展示给用户；已解锁时为 null
+    QuizQuestionResponse:
+      type: object
+      description: >-
+        options 为打乱顺序后的完整选项文本（非字母码）；提交答案时 QuizAnswerRequest.answers
+        必须精确等于本接口返回的 options 原文字符串，而非 "A"/"B" 字母。
+      properties:
+        id:
+          type: integer
+          format: int64
+        courseId:
+          type: integer
+          format: int64
+        questionText:
+          type: string
+        questionType:
+          type: string
+          enum:
+          - SINGLE_CHOICE
+          - MULTIPLE_CHOICE
+        options:
+          type: array
+          items:
+            type: string
+        attemptCount:
+          type: integer
+          format: int32
+          description: 该题目此前已作答次数（不限制上限，仅供展示）
+        displayOrder:
+          type: integer
+          format: int32
+    QuestionResult:
+      type: object
+      properties:
+        questionId:
+          type: integer
+          format: int64
+        questionText:
+          type: string
+        correct:
+          type: boolean
+        explanation:
+          type: string
+    QuizResultResponse:
+      type: object
+      description: >-
+        每次逐题提交后返回按"每题最新一次作答"聚合的整卷结果；及格线 60%，不限答题次数
+        （remainingAttempts 恒为 -1，表示无限次）。
+      properties:
+        passed:
+          type: boolean
+        correctCount:
+          type: integer
+          format: int32
+        totalQuestions:
+          type: integer
+          format: int32
+        scorePercent:
+          type: integer
+          format: int32
+        questionResults:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuestionResult'
+        remainingAttempts:
+          type: integer
+          format: int32
+          description: 恒为 -1（无限次答题机会），非真实剩余次数计数
     BasicInfoRequest:
       type: object
       description: >-
@@ -1636,14 +1833,16 @@ components:
       - metaInfo
     FaceVerifyInitResponse:
       type: object
-      description: 发起动作活体认证响应。status 取值 PENDING（已发起，等待前端完成动作活体）/ ERROR（发起失败）。
+      description: 发起动作活体认证响应。status 取值 PENDING（已发起，客户端用 App SDK 完成动作活体）/ ERROR（发起失败）。
       properties:
         certifyId:
           type: string
-          description: 本次认证的唯一 ID，后续查询结果时回传
+          nullable: true
+          description: 本次认证的唯一 ID（PENDING 时非空），客户端用阿里云 App SDK（AliyunFaceAuthFacade.verify）消费；后续查询结果时回传
         certifyUrl:
           type: string
-          description: 前端打开此 URL 完成动作活体（OSS 回跳地址）
+          nullable: true
+          description: 恒为 null——App SDK 场景阿里云不返回该字段，仅历史 H5/Web 场景使用，客户端无需处理
         status:
           type: string
           enum:
@@ -1652,8 +1851,6 @@ components:
         message:
           type: string
       required:
-      - certifyId
-      - certifyUrl
       - status
     FaceVerifyResultRequest:
       type: object
