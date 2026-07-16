@@ -7,7 +7,7 @@
 > - 新评审发现的问题，按优先级（P0 > P1 > P2）追加到「待处理」对应区块。
 > - 每条标注信息可信度：**【已确证】**（读代码/文档确认）或 **【⚠️ 待核实】**（概括，需进一步核实）。
 
-**最近更新**：2026-07-13（S11：登出黑名单粒度从"按用户整体撤销"改为"按单个 token 撤销"，修复选角色重发 Token 场景下登出误杀其他有效 Token 的问题；已修复本地代码并测试通过，待部署到生产）
+**最近更新**：2026-07-16（S12：`.claude/settings.json` 明文泄露阿里云 AccessKey+CS管理员密码哈希，已清理当前文件并提交，密钥已由用户在阿里云控制台轮换；V6：产品决策去除接单前置的注册/培训门槛，先上线再说；已修复本地代码并测试通过，待部署到生产）
 
 ---
 
@@ -15,8 +15,8 @@
 
 | 优先级 | 已解决 | 待处理 |
 |--------|--------|--------|
-| P0（影响核心功能/安全） | ✅ 9 / 9 | 0 |
-| P1（重要，应修） | ✅ 15 / 15 | 1（SMS-A3：短信模板参数格式） |
+| P0（影响核心功能/安全） | ✅ 10 / 10 | 0 |
+| P1（重要，应修） | ✅ 16 / 16 | 1（SMS-A3：短信模板参数格式） |
 | P2（增强/优化） | ✅ 8 / 8 | 2（T2/T3，文档缺口） |
 
 **评审来源**：2026-06-17 首次全面代码评审。
@@ -232,6 +232,19 @@
 - **验证**：`gradlew compileJava` 通过；`gradlew test` 全量 177/177 通过（`AliyunIdVerifyService` 原无用例断言 certifyUrl 必填行为，无需改动；`TestFaceVerifyServiceImplTest` 用的是无关的 `TestFaceVerifyServiceImpl` 测试桩，仍返回 URL，因调用方已不再要求该字段而不受影响）。**尚未部署到生产，也未经真机验证**——下一步待办，非已完成项。
 - **教训**：这是同一功能点连续第二次被修正（V3 被 V4 修正；如今 V4 收尾时"预期能拿到 certifyUrl，待真机验证"的假设本身又被 V5 修正）——当错误是从局部/伪造测试数据（虚构 metaInfo、非真机）推断出来时，不能想当然地认为剩余差距"只是测试数据不够真实"，而应先核实**成功判定标准本身**是否符合实际集成契约（App SDK 与 H5/Web 的响应结构不同）。直接找到有真实接口响应日志的客户端开发者当面核实，比单纯从合成测试的报错信息去猜测根因更可靠。
 
+### [P1] V6 · 去除接单前置的注册/培训门槛（产品决策：先上线再说） — `2026-07-16` 【已确证】
+
+- **背景**：志愿者人脸活体认证（Step3）通过后仍无法接单——根因是接单需 `registrationStep == STEP_4_COMPLETED`，而活体通过只推进到 `STEP_4_TRAINING`，还需完成 3 门培训课程 + 测验才能自动转 `STEP_4_COMPLETED` 并 `verified=true`（见 `TrainingService.checkAllCoursesCompleted`）。经与产品讨论培训门槛的必要性，**决策为完全去除该门槛，先上线，后续视线上情况再决定是否恢复/替换为轻量审核**。
+- **改动**：删除三处独立的 `registrationStep != STEP_4_COMPLETED` / `!verified` 强制校验（原本三处各自把关，缺一不可，需一并删除才真正生效）：
+  1. `DispatchService.handleVolunteerResponse`（生产实际接单入口，`/respond` 与旧 `/accept`、`/reject` 共用）。
+  2. `ScoringService` 派单候选硬性过滤（`populateQueue` 用，未完成培训的志愿者此前根本进不了候选池，光删第 1 处不够）。
+  3. `OrderLifecycleService.acceptOrder()`（生产无调用点，仅单测覆盖，一并同步保持一致）。
+- **未删除**：`RegistrationStep`/`verified` 字段、培训课程与测验体系（课程内容、测验、防作弊）全部保留，只是不再强制阻断接单；`getRegistrationStatus` 的 `canAcceptOrders` 展示字段未改。
+- **测试改造**：`ScoringServiceTest` 删除"硬性过滤：注册未完成被排除"用例；`OrderPermissionTest` 删除 TC-PERM-05（未认证志愿者接单需 403）——该场景现在走正常的派单归属校验（未派送给您 → 409），不再有单独的认证 403 分支。
+- **涉及文件**：`DispatchService.java`、`ScoringService.java`、`OrderLifecycleService.java`、`ScoringServiceTest.java`、`OrderPermissionTest.java`
+- **验证**：`gradlew compileJava`/`compileTestJava` 通过；`service` 包全量单测通过（40 用例，含 ScoringServiceTest/OrderServiceTest/DispatchServiceTest）；`OrderPermissionTest` 因本机无 Docker 导致 Testcontainers 初始化失败，与本次改动无关（非回归）。
+- **⚠️ 待办（未完成）**：尚未部署到生产 `47.114.113.171`；无数据库迁移需求（未改字段/表结构）。
+
 ### [P0] S11 · 登出误撤销同账号其他有效 Token（选角色重发 Token 场景） — `2026-07-13` 【已确证】
 
 - **问题**：云端契约验证复现（测试用户 23）：手机验证码登录拿 Token A → `POST /api/user/role` 选角色拿替换 Token B（两者均曾有效）→ 用 Token A 调 `POST /api/auth/logout` → Token B 也随之失效。根因是 S1（2026-06-17）修复引入的黑名单机制按**用户整体**撤销：`jwt:blacklist:{userId}` 只存一个"拉黑时刻"时间戳，任何 `iat ≤ 该时刻` 的 token 全部失效——Token B 的签发时间必然早于登出调用时刻，因此被一并误杀。这不是随机边缘场景，而是本项目"选角色返回新 Token，客户端须替换本地存储"这一正常流程天然会触发的路径。
@@ -241,6 +254,25 @@
 - **测试用户 23 处理**：无需人工/管理员数据库介入。当前失效的是"登出前已签发"的旧 token；只要用原手机号重新走验证码登录拿一个全新 token（签发时间晚于旧黑名单时刻），即可正常调用 `GET /api/auth/me` 与 `DELETE /api/users/23` 自助完成软删除。
 - **⚠️ 待办（未完成）**：本次为本地代码修复+单元测试验证，**尚未部署到 `47.114.113.171` 生产环境**。部署后需按用户提供的检查清单复测：①删除他人 ID → 403（已有逻辑，未改动）；②有活动订单删除 → 409 + `ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED`；③软删除成功；④删除后该账户全部 token → 401（`blacklistUserWithMaxTtl` 未改动，应仍生效）；⑤原手机号可重新注册；⑥删除响应含 `success/phoneReusable/allTokensInvalidated` 三字段。同时需同步 `docs/api_spec.yaml`（logout 契约说明「仅撤销当前 token」+ 补充删除响应字段）、`docs/frontend-guide.md`、`docs/test-accounts.md`，并通知 iOS 端登出行为契约已确认为"仅当前 token"（与其原假设一致，无需改客户端）。
 - **验证**：`gradlew compileJava`/`compileTestJava` 通过；`TokenBlacklistServiceTest`（含新增用例，覆盖"登出 A 不影响 B"场景）通过；`gradlew test` 121 项非 Docker 依赖用例通过（13 项 Testcontainers 集成测试因本地无 Docker daemon 未跑，非本次改动引入的回归）。
+
+### [P0] S12 · `.claude/settings.json` 明文泄露阿里云 AccessKey + CS 管理员密码哈希 — `2026-07-16` 【已确证】
+
+- **触发**：阿里云风控系统告警检测到账号存在泄露的 AccessKey（GitHub 密钥扫描合作伙伴计划扫描公开仓库并通知云厂商——本仓库 `Jayden23018/blind-run-backend` 为 **public**）。
+- **问题**：`.claude/settings.json`（Claude Code 权限白名单文件）里的 `permissions.allow` 记录了历史上用户实际敲过的、**带内联凭证的完整 shell 命令**，随该文件一起被提交进 git 并推送到公开仓库。经排查共两组可用凭证 + 一组密码哈希：
+  - AccessKey ID `LTAI5tQ4****`（已作废）+ 配对 Secret（已作废，不在此记录明文）
+  - AccessKey ID `LTAI5t7T****`（已作废）+ 配对 Secret（已作废，不在此记录明文）
+  - CS 管理员（`cs_users.admin`）密码 bcrypt 哈希 ×2（历史两次手动改密留下的记录）
+  - 引入 commit：`9e91473`（2026-07-07，"新增志愿者人脸认证功能"）。这是此前 `.gitignore` 名单（`gradle.properties`、`start-with-correct-env.sh`）**未覆盖的新泄露载体**——根因是把带内联环境变量的一次性调试命令记进了权限白名单，而非专门的密钥文件。
+  - **影响**：泄露凭证可直接调用阿里云 API（短信/人脸核身/OSS 等本项目已开通的服务）；管理员密码哈希存在离线暴力破解风险。
+- **方案**：
+  1. 清空当前工作区 `.claude/settings.json` 中的明文 AccessKey/Secret/密码哈希 5 处权限条目（不影响其余正常白名单项），提交新 commit（可逆、不改历史）。
+  2. **用户已在阿里云 RAM 控制台自行禁用/轮换涉事 AccessKey**，并重置 CS 管理员密码。
+  3. **暂不清洗 git 历史**（`git filter-repo` + force-push）——决策：旧凭证既已作废，历史清洗收益（防止后来者看到已失效的字符串）相对破坏性操作（改写公开仓库全部历史 hash）不划算，先只轮换密钥。如后续需要，仍可执行。
+- **涉及文件**：`.claude/settings.json`
+- **⚠️ 待办（未完成）**：
+  - 团队约定：本地调试**不要**把凭证以内联环境变量形式直接写进会被记录的 shell 命令（`export`/`FOO=bar cmd` 均会被 Claude Code 权限系统原样记录）——本项目已有 `start-with-correct-env.sh`（已 gitignore）承载该用途，应始终通过它加载凭证，不要在命令行现敲。
+  - 建议定期 `grep -rn "LTAI\|AKIA\|\\$2[ab]\\$"` 检查 `.claude/settings.json` 等非常规文件，纳入定期审计。
+- **验证**：清理后 `grep -n "LTAI\|2a\$10\$" .claude/settings.json` 无匹配。
 
 ### [P2] A8 · 派单进度反馈 + 修复模板缺失 bug — `2026-06-19` 【已确证】
 
