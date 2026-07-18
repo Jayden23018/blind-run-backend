@@ -121,35 +121,8 @@ class OrderPermissionTest extends BaseIntegrationTest {
         System.out.println("✅ TC-PERM-04 passed — 盲人用户接单返回403");
     }
 
-    // ==================== TC-PERM-05 ====================
-
-    /** TC-PERM-05：未认证志愿者接单 → 403 "请先完成志愿者认证" */
-    @Test
-    @DisplayName("TC-PERM-05: 未认证志愿者接单返回403")
-    void tcPerm05_unverifiedVolunteerAccept_returns403() throws Exception {
-        // 盲人创建订单
-        String blindToken = testHelper.registerAndLoginWithRole("13800070031", "BLIND");
-        // 已认证志愿者上线触发匹配
-        String verifiedVolToken = testHelper.registerAndLoginWithRole("13800070032", "VOLUNTEER");
-        testHelper.updateVolunteerLocation(verifiedVolToken, 39.9242, 116.4677, true);
-
-        Long orderId = testHelper.createOrder(blindToken, 39.9042, 116.4674, "朝阳公园南门",
-                TestHelper.defaultStartTime(), TestHelper.defaultEndTime());
-
-        Thread.sleep(500); // 等待异步派单
-
-        // 未认证志愿者尝试接单
-        String unverifiedVolToken = testHelper.registerVolunteerWithoutVerification("13800070033");
-        ResponseEntity<String> response = testHelper.respondOrderRaw(unverifiedVolToken, orderId, "ACCEPT");
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
-        JsonNode json = testHelper.extractJson(response.getBody());
-        assertThat(json.get("success").asBoolean()).isFalse();
-        assertThat(json.get("code").asInt()).isEqualTo(403);
-        assertThat(json.get("message").asText()).contains("请先完成志愿者注册流程");
-
-        System.out.println("✅ TC-PERM-05 passed — 未认证志愿者接单返回403");
-    }
+    // ponytail: TC-PERM-05（未认证志愿者接单需 403）已删除 —— 注册/培训门槛按产品决策整体去除（先上线再说），
+    // 未认证志愿者现在走正常的派单归属校验（未派送给您则 409），不再有单独的认证 403 分支。
 
     // ==================== TC-PERM-06 ====================
 

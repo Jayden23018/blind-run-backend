@@ -82,15 +82,7 @@ public class ScoringService {
                 continue;
             }
 
-            // 注册未完成
-            if (profile.getRegistrationStep() != RegistrationStep.STEP_4_COMPLETED) {
-                continue;
-            }
-
-            // 身份未认证
-            if (!Boolean.TRUE.equals(profile.getVerified())) {
-                continue;
-            }
+            // ponytail: 注册/培训门槛（registrationStep/verified）已按产品决策整体去除，先上线再说。
 
             // 导盲犬不兼容
             if (Boolean.TRUE.equals(order.getHasGuideDogThisRun())

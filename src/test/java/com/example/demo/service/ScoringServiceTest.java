@@ -326,25 +326,7 @@ class ScoringServiceTest {
             assertThat(result).isEmpty();
         }
 
-        @Test
-        @DisplayName("硬性过滤：注册未完成被排除")
-        void filterByRegistrationStep() {
-            RunOrder order = createOrder();
-
-            List<Map<String, Object>> locations = List.of(
-                    createLocation(1L, order.getStartLatitude() + 0.01, order.getStartLongitude())
-            );
-
-            VolunteerProfile profile = createFullProfile(1L);
-            profile.setRegistrationStep(RegistrationStep.STEP_3_FACE_VERIFY);
-            Map<Long, VolunteerProfile> profiles = Map.of(1L, profile);
-            Map<Long, List<VolunteerAvailableTime>> availability = Map.of();
-
-            List<ScoredCandidate> result = scoringService.scoreCandidates(
-                    order, locations, profiles, availability, 5.0, 0.8);
-
-            assertThat(result).isEmpty();
-        }
+        // ponytail: 注册/培训门槛硬性过滤已按产品决策整体去除（先上线再说），对应测试一并删除。
     }
 
     // ===== 测试辅助方法 =====

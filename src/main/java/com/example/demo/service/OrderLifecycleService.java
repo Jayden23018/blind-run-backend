@@ -75,16 +75,9 @@ public class OrderLifecycleService {
 
     @Transactional
     public void acceptOrder(Long orderId, Long volunteerId) {
-        VolunteerProfile profile = volunteerProfileRepository.findByUserId(volunteerId)
+        // ponytail: 注册/培训门槛（registrationStep/verified）已按产品决策整体去除，先上线再说。
+        volunteerProfileRepository.findByUserId(volunteerId)
                 .orElseThrow(() -> new OrderPermissionException("VOLUNTEER_NOT_VERIFIED", "请先完成志愿者认证"));
-
-        if (profile.getRegistrationStep() != RegistrationStep.STEP_4_COMPLETED) {
-            throw new OrderPermissionException("VOLUNTEER_NOT_REGISTERED", "请先完成志愿者注册流程（当前步骤：" +
-                    profile.getRegistrationStep().name() + "）");
-        }
-        if (!Boolean.TRUE.equals(profile.getVerified())) {
-            throw new OrderPermissionException("VOLUNTEER_NOT_VERIFIED", "请先完成志愿者认证");
-        }
 
         RunOrder order = runOrderRepository.findById(orderId)
                 .orElseThrow(() -> new OrderNotFoundException("订单不存在，ID: " + orderId));

@@ -251,18 +251,9 @@ public class DispatchService {
      */
     @Transactional
     public void handleVolunteerResponse(Long orderId, Long volunteerId, RespondAction action) {
-        // 志愿者资质校验：未完成注册/认证的志愿者不应响应派单（与原 OrderLifecycleService.acceptOrder 检查一致）。
-        // 派单虽只派给认证志愿者，但旧 /accept 与 /respond 共用此入口，显式校验才能给出友好的 403 反馈，
-        // 而非被派单归属校验以"未派送给您"409 拒绝（对未认证用户体验更差）。
+        // ponytail: 注册/培训门槛（registrationStep/verified）已按产品决策整体去除，先上线再说。
         VolunteerProfile profile = volunteerProfileRepository.findByUserId(volunteerId)
                 .orElseThrow(() -> new OrderPermissionException("VOLUNTEER_NOT_VERIFIED", "请先完成志愿者认证"));
-        if (profile.getRegistrationStep() != RegistrationStep.STEP_4_COMPLETED) {
-            throw new OrderPermissionException("VOLUNTEER_NOT_REGISTERED",
-                    "请先完成志愿者注册流程（当前步骤：" + profile.getRegistrationStep().name() + "）");
-        }
-        if (!Boolean.TRUE.equals(profile.getVerified())) {
-            throw new OrderPermissionException("VOLUNTEER_NOT_VERIFIED", "请先完成志愿者认证");
-        }
         // MVP 规则：关闭可服务状态（wantsDispatch=false）时，志愿者可浏览订单但不能接单。
         // 以 DB 为准（Redis 可能过期），给前端明确的 403 + VOLUNTEER_NOT_AVAILABLE。
         if (Boolean.FALSE.equals(profile.getWantsDispatch())) {
