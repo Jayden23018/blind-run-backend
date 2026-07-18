@@ -27,6 +27,8 @@ dependencies {
 	implementation 'org.apache.commons:commons-pool2'
 	implementation 'org.springframework.boot:spring-boot-starter-websocket'
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.6'
+	// 部署健康检查用：/actuator/health 能反映 DB/Redis 真实连通性，而不只是 Spring 容器起没起来
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
 
 	implementation 'io.jsonwebtoken:jjwt-api:0.12.5'
 	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.5'

@@ -83,6 +83,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/cs/auth/**").permitAll()
                         // Swagger / OpenAPI 文档允许匿名访问
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
+                        // 部署脚本健康检查用，只暴露 health 端点（见 application.properties 的 management.endpoints.web.exposure.include）
+                        .requestMatchers("/actuator/health").permitAll()
                         // WebSocket 握手端点允许匿名访问（认证在 HandshakeInterceptor 中处理）
                         .requestMatchers("/ws/volunteer/**").permitAll()
                         .requestMatchers("/ws/blind/**").permitAll()
