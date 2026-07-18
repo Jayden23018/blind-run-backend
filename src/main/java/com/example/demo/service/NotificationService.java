@@ -142,6 +142,38 @@ public class NotificationService {
     }
 
     /**
+     * 向志愿者推送盲人实时位置（BLIND_LOCATION_UPDATE）
+     * timestamp 使用 epoch ms，与 sendVolunteerLocationUpdate 保持一致
+     */
+    public void sendBlindLocationUpdate(Long volunteerId, Long orderId, double lat, double lng) {
+        try {
+            Map<String, Object> msg = new LinkedHashMap<>();
+            msg.put("type", "BLIND_LOCATION_UPDATE");
+            msg.put("orderId", orderId);
+            msg.put("lat", lat);
+            msg.put("lng", lng);
+            msg.put("timestamp", System.currentTimeMillis());
+            sessionRegistry.sendToUser(volunteerId, objectMapper.writeValueAsString(msg));
+        } catch (Exception e) {
+            log.warn("转发盲人位置给志愿者 {} 失败: {}", volunteerId, e.getMessage());
+        }
+    }
+
+    /**
+     * 发送走散告警（WebSocket → 志愿者 + 盲人）
+     */
+    public void sendEscortDistanceAlert(Long orderId, Long blindUserId, Long volunteerId) {
+        try {
+            sendNotification(blindUserId, "ESCORT_DISTANCE_ALERT", TargetRole.BLIND_USER, null);
+            sendNotification(volunteerId, "ESCORT_DISTANCE_ALERT", TargetRole.VOLUNTEER, null);
+            logNotification(orderId, blindUserId, NotificationChannel.WEBSOCKET, "走散告警");
+            logNotification(orderId, volunteerId, NotificationChannel.WEBSOCKET, "走散告警");
+        } catch (Exception e) {
+            log.error("发送走散告警失败: {}", e.getMessage());
+        }
+    }
+
+    /**
      * 查询通知模板（带缓存）
      * 缓存 key = eventType + '_' + targetRole，模板更新时 @CacheEvict 清除
      */

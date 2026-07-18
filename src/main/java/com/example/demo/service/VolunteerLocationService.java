@@ -3,6 +3,7 @@ package com.example.demo.service;
 import com.example.demo.entity.OrderStatus;
 import com.example.demo.entity.RunOrder;
 import com.example.demo.entity.User;
+import com.example.demo.entity.UserRole;
 import com.example.demo.entity.VolunteerLocation;
 import com.example.demo.entity.VolunteerProfile;
 import com.example.demo.repository.RunOrderRepository;
@@ -58,6 +59,8 @@ public class VolunteerLocationService {
     private final ProximityService proximityService;
     private final BlindLocationService blindLocationService;
     private final VolunteerProfileRepository volunteerProfileRepository;
+    private final RunOrderTrackService trackService;
+    private final EscortSafetyService escortSafetyService;
 
     /** Redis key 前缀 */
     private static final String REDIS_KEY_PREFIX = "vol:loc:";
@@ -77,7 +80,9 @@ public class VolunteerLocationService {
                                      NotificationService notificationService,
                                      ProximityService proximityService,
                                      BlindLocationService blindLocationService,
-                                     VolunteerProfileRepository volunteerProfileRepository) {
+                                     VolunteerProfileRepository volunteerProfileRepository,
+                                     RunOrderTrackService trackService,
+                                     EscortSafetyService escortSafetyService) {
         this.locationRepository = locationRepository;
         this.userRepository = userRepository;
         this.redisTemplate = redisTemplate;
@@ -87,6 +92,8 @@ public class VolunteerLocationService {
         this.proximityService = proximityService;
         this.blindLocationService = blindLocationService;
         this.volunteerProfileRepository = volunteerProfileRepository;
+        this.trackService = trackService;
+        this.escortSafetyService = escortSafetyService;
     }
 
     /**
@@ -261,13 +268,13 @@ public class VolunteerLocationService {
 
     /**
      * 将志愿者位置转发给对应订单的盲人用户
-     * 只在订单状态为 DRIVER_EN_ROUTE 或 DRIVER_ARRIVED 时推送
+     * 推送范围：DRIVER_EN_ROUTE（前往中）、DRIVER_ARRIVED（已到达）、IN_PROGRESS（陪跑进行中）
      */
     private void forwardLocationToBlind(Long volunteerId, Double latitude, Double longitude) {
         try {
             List<RunOrder> activeOrders = runOrderRepository.findByVolunteerIdAndStatusInFetchBlind(
                     volunteerId,
-                    List.of(OrderStatus.DRIVER_EN_ROUTE, OrderStatus.DRIVER_ARRIVED)
+                    List.of(OrderStatus.DRIVER_EN_ROUTE, OrderStatus.DRIVER_ARRIVED, OrderStatus.IN_PROGRESS)
             );
 
             if (activeOrders.isEmpty()) {
@@ -279,14 +286,33 @@ public class VolunteerLocationService {
                 notificationService.sendVolunteerLocationUpdate(blindUserId, order.getId(), latitude, longitude);
                 log.debug("已向盲人 {} 转发志愿者 {} 位置 (订单 {})", blindUserId, volunteerId, order.getId());
 
-                // 邻近检测：志愿者出发途中，检查是否已接近盲人
                 if (order.getStatus() == OrderStatus.DRIVER_EN_ROUTE) {
+                    // 邻近检测：志愿者出发途中，检查是否已接近盲人
                     checkProximity(order, blindUserId, volunteerId, latitude, longitude);
+                } else if (order.getStatus() == OrderStatus.IN_PROGRESS) {
+                    // 陪跑进行中：记录轨迹 + 走散检测
+                    trackService.recordIfDue(order.getId(), volunteerId, UserRole.VOLUNTEER, latitude, longitude);
+                    checkEscortDistance(order, blindUserId, latitude, longitude);
                 }
             }
         } catch (Exception e) {
             // 位置转发失败不影响主流程
             log.warn("转发志愿者 {} 位置给盲人失败: {}", volunteerId, e.getMessage());
+        }
+    }
+
+    /**
+     * 走散检测：读取盲人最新缓存坐标，与志愿者当前坐标比较
+     */
+    private void checkEscortDistance(RunOrder order, Long blindUserId, double volunteerLat, double volunteerLng) {
+        try {
+            Map<String, Double> blindLoc = blindLocationService.getLocation(blindUserId);
+            if (blindLoc == null) {
+                return;
+            }
+            escortSafetyService.checkDistance(order, volunteerLat, volunteerLng, blindLoc.get("lat"), blindLoc.get("lng"));
+        } catch (Exception e) {
+            log.debug("走散检测失败 (订单 {}): {}", order.getId(), e.getMessage());
         }
     }
 

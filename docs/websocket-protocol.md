@@ -80,7 +80,7 @@
 
 #### VOLUNTEER_LOCATION_UPDATE — 志愿者实时位置
 
-当订单处于 `DRIVER_EN_ROUTE` 或 `DRIVER_ARRIVED` 状态时，志愿者每次上报位置都会转发给盲人。
+当订单处于 `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED` 或 `IN_PROGRESS` 状态时，志愿者每次上报位置都会转发给盲人（`IN_PROGRESS` 阶段即陪跑进行中，此前只推到 `DRIVER_ARRIVED`，现已补全）。
 
 ```json
 {
@@ -99,7 +99,7 @@
 | lng | number | 志愿者经度 |
 | timestamp | number | Unix 时间戳（毫秒） |
 
-**用途**: 在地图上实时显示志愿者位置，方便盲人等待接驳。
+**用途**: 在地图上实时显示志愿者位置，方便盲人等待接驳；`IN_PROGRESS` 阶段用于陪跑中实时同步双方位置。
 
 #### APP_NOTIFICATION — 通用通知
 
@@ -133,8 +133,11 @@
 | 重新匹配 | 志愿者已取消，正在重新匹配 | NORMAL |
 | 暂无志愿者 | 暂时没有可用志愿者，仍在等待 | NORMAL |
 | 邻近感知 | 志愿者距您约100米 | NORMAL |
+| 走散告警（`ESCORT_DISTANCE_ALERT`） | 与志愿者的距离似乎有点远 | HIGH |
 | 紧急事件触发 | 已收到求助，正在通知志愿者 | HIGH |
 | 联系人已通知 | 已通过短信通知您的联系人{contactName}，请保持冷静 | HIGH |
+
+**走散告警（`ESCORT_DISTANCE_ALERT`）说明**: `IN_PROGRESS`（陪跑中）阶段，若双方实时 GPS 距离超过阈值（默认 100 米，`app.escort.max-distance-meters` 可配），双方各收到一条 `APP_NOTIFICATION`（此为其 `eventType`，用于查模板，WebSocket 消息本身 `type` 仍为 `APP_NOTIFICATION`）；ttsText 为「你和志愿者的距离似乎有点远，请留在原地，志愿者正在确认位置」。同一次距离越界还会**并行**触发既有紧急升级流程（`EmergencyService.triggerEmergency`，`triggerType=AI_DETECTED`）通知客服介入，两者互不替代：本告警是双端的即时轻量提醒，紧急升级是走向客服的分级处理。
 
 #### ORDER_STATUS_CHANGED — 订单状态变更
 
@@ -237,6 +240,29 @@ NO_VOLUNTEER（无可用志愿者）
 
 ### 3.2 服务器 → 客户端
 
+#### BLIND_LOCATION_UPDATE — 盲人实时位置
+
+当订单处于 `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED` 或 `IN_PROGRESS` 状态时，盲人每次上报位置都会转发给志愿者（与 `VOLUNTEER_LOCATION_UPDATE` 方向相反、格式相同）。
+
+```json
+{
+  "type": "BLIND_LOCATION_UPDATE",
+  "orderId": 123,
+  "lat": 39.9050,
+  "lng": 116.4080,
+  "timestamp": 1716480000000
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| orderId | number | 当前订单 ID |
+| lat | number | 盲人纬度 |
+| lng | number | 盲人经度 |
+| timestamp | number | Unix 时间戳（毫秒） |
+
+**用途**: 在地图上实时显示盲人位置，方便志愿者赶往接驳；`IN_PROGRESS` 阶段用于陪跑中实时同步双方位置。
+
 #### NEW_ORDER — 新订单派单通知（核心消息）
 
 串行派单系统向志愿者推送新订单，志愿者必须在 `dispatchTimeoutSeconds` 秒内响应。
@@ -311,6 +337,9 @@ Content-Type: application/json
 | 培训完成 | 恭喜您完成所有必修课程，现在可以接单了 | HIGH |
 | 订单超时 | 订单已超过结束时间1小时 | HIGH |
 | 邻近感知 | 您已到达盲人附近 | NORMAL |
+| 走散告警（`ESCORT_DISTANCE_ALERT`） | 与盲人用户的距离似乎有点远 | HIGH |
+
+**走散告警（`ESCORT_DISTANCE_ALERT`）说明**: 与盲人端对称，`IN_PROGRESS` 阶段双方距离超过阈值（默认 100 米）时志愿者也会收到一条 `APP_NOTIFICATION`，ttsText 为「你和盲人用户的距离似乎有点远，请尽快确认对方位置」，详见上方盲人端说明（同一次越界双方各收到一条，且并行触发客服紧急升级）。
 
 #### ORDER_STATUS_CHANGED — 订单状态变更
 
@@ -397,6 +426,7 @@ Authorization: Bearer <token>
 | 方向 | type | 触发场景 | priority |
 |------|------|---------|----------|
 | 发送 | `LOCATION_UPDATE` | 定时上报位置（5~10s） | — |
+| 接收 | `BLIND_LOCATION_UPDATE` | 盲人位置实时转发 | — |
 | 接收 | `NEW_ORDER` | 串行派单推送 | HIGH |
 | 接收 | `APP_NOTIFICATION` | 模板通知 | HIGH/NORMAL |
 | 接收 | `ORDER_STATUS_CHANGED` | 订单状态变更 | HIGH/NORMAL |

@@ -6,11 +6,13 @@ import com.example.demo.dto.DispatchRespondRequest;
 import com.example.demo.dto.OrderDetailResponse;
 import com.example.demo.dto.OrderResponse;
 import com.example.demo.dto.OrderStatusLogResponse;
+import com.example.demo.dto.OrderTrackResponse;
 import com.example.demo.dto.RespondAction;
 import com.example.demo.entity.BlindProfile;
 import com.example.demo.entity.OrderStatus;
 import com.example.demo.entity.RunOrder;
 import com.example.demo.entity.User;
+import com.example.demo.entity.UserRole;
 import com.example.demo.exception.OrderPermissionException;
 import com.example.demo.repository.BlindProfileRepository;
 import com.example.demo.repository.RunOrderRepository;
@@ -20,6 +22,7 @@ import com.example.demo.service.OrderCreationService;
 import com.example.demo.service.OrderLifecycleService;
 import com.example.demo.service.OrderQueryService;
 import com.example.demo.service.OrderStatusLogService;
+import com.example.demo.service.RunOrderTrackService;
 import com.example.demo.service.VolunteerLocationService;
 
 import com.example.demo.util.PhoneMaskUtils;
@@ -72,6 +75,7 @@ public class OrderController {
     private final VolunteerLocationService volunteerLocationService;
     private final UserRepository userRepository;
     private final BlindProfileRepository blindProfileRepository;
+    private final RunOrderTrackService trackService;
 
     public OrderController(OrderCreationService orderCreationService,
                            OrderLifecycleService orderLifecycleService,
@@ -81,7 +85,8 @@ public class OrderController {
                            RunOrderRepository runOrderRepository,
                            VolunteerLocationService volunteerLocationService,
                            UserRepository userRepository,
-                           BlindProfileRepository blindProfileRepository) {
+                           BlindProfileRepository blindProfileRepository,
+                           RunOrderTrackService trackService) {
         this.orderCreationService = orderCreationService;
         this.orderLifecycleService = orderLifecycleService;
         this.orderQueryService = orderQueryService;
@@ -91,6 +96,7 @@ public class OrderController {
         this.volunteerLocationService = volunteerLocationService;
         this.userRepository = userRepository;
         this.blindProfileRepository = blindProfileRepository;
+        this.trackService = trackService;
     }
 
     @PostMapping
@@ -176,6 +182,22 @@ public class OrderController {
         Long userId = SecurityUtils.getCurrentUserId();
         RunOrder order = orderQueryService.getOrder(id, userId);
         return ResponseEntity.ok(toDetailResponse(order));
+    }
+
+    /** 查询订单双方的历史路径轨迹 + 统计数据（订单结束后回看用） */
+    @GetMapping("/{id}/track")
+    public ResponseEntity<OrderTrackResponse> getOrderTrack(@PathVariable @Min(1) Long id) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        // 仅用于权限校验副作用：非参与者会在此抛 OrderPermissionException/OrderNotFoundException，返回值本身不需要
+        orderQueryService.getOrder(id, userId);
+
+        OrderTrackResponse response = new OrderTrackResponse(
+                trackService.getTrack(id, UserRole.VOLUNTEER),
+                trackService.getStats(id, UserRole.VOLUNTEER),
+                trackService.getTrack(id, UserRole.BLIND),
+                trackService.getStats(id, UserRole.BLIND)
+        );
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/mine")

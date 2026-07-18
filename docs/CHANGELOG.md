@@ -4,6 +4,12 @@
 
 ### 新增
 
+- **🔥 陪跑实时位置互推 + 走散告警 + 轨迹回放**：
+  - **新增 `GET /api/orders/{id}/track`**：订单结束后双方可查看本次陪跑的完整路径回放（类似健身 App 轨迹地图）。鉴权与 `GET /api/orders/{id}` 一致（仅订单双方本人可访问，否则 403）。返回 `volunteerTrack`/`blindTrack`（各自轨迹点数组，约 10 秒一个点）+ `volunteerStats`/`blindStats`（里程/耗时/配速，详见 `docs/frontend-guide.md` 3.7 节）。
+  - **`IN_PROGRESS`（陪跑中）阶段补全双向实时位置推送**：此前只推到 `DRIVER_ARRIVED`，陪跑真正开始后完全没有位置更新，现已修复。志愿者端通过已有的 `VOLUNTEER_LOCATION_UPDATE`（盲人 WS）接收盲人位置，新增对称的 `BLIND_LOCATION_UPDATE`（志愿者 WS）推送给志愿者，两者消息格式一致，`orderId`/`lat`/`lng`/`timestamp` 字段相同。
+  - **新增走散告警 `ESCORT_DISTANCE_ALERT`**：`IN_PROGRESS` 阶段若双方 GPS 距离连续 2 次采样都超过阈值（默认 100 米，防止单次 GPS 跳变误报）才触发，双方各收到一条 `NOTIFICATION` 消息（`eventType: ESCORT_DISTANCE_ALERT`，带 `ttsText` + `priority: HIGH`）。同一次触发会**并行**走既有紧急升级流程通知客服，二者互不替代。
+  - ⚠️ **前端需要处理的新消息类型**：志愿者 WS 新增 `BLIND_LOCATION_UPDATE`；双方 WS 的 `NOTIFICATION` 消息新增 `eventType: ESCORT_DISTANCE_ALERT` 分支。
+  - 新增 DB 表 `run_order_track_point`；**生产部署前必须先执行建表 SQL**（`ddl-auto=validate`，见 `CLAUDE.md` "Production Deployment" 章节）。
 - **`NEW_ORDER` WebSocket 消息新增 `startLatitude`/`startLongitude`**：派单通知现在带订单起跑点经纬度，前端可在地图上标记订单位置（订单实体本就有这俩字段，必填）。
 - **`GET /api/volunteer/dispatch-summary` 新增 `totalCompleted` 字段**：累计**完成**订单次数（订单走到 COMPLETED 才算）。
   - ⚠️ 与 `totalAccepted`（接单次数）区分：`totalAccepted` 是点了 ACCEPT 就算（含接了没跑完的），`totalCompleted` 才是真正完成数。

@@ -68,10 +68,18 @@ public class EmergencyService {
     }
 
     /**
-     * 触发紧急事件
+     * 触发紧急事件（盲人主动按按钮）
      */
     @Transactional
     public EmergencyEvent triggerEmergency(Long userId, EmergencyTriggerRequest request) {
+        return triggerEmergency(userId, request, TriggerType.BUTTON);
+    }
+
+    /**
+     * 触发紧急事件（可指定触发方式，如 AI_DETECTED 用于走散自动检测）
+     */
+    @Transactional
+    public EmergencyEvent triggerEmergency(Long userId, EmergencyTriggerRequest request, TriggerType triggerType) {
         // 1. 冷却检查（使用 SETNX 原子操作，避免竞态条件）
         String cooldownKey = "emergency:cooldown:" + userId;
         Boolean acquired = redisTemplate.opsForValue()
@@ -97,7 +105,7 @@ public class EmergencyService {
         EmergencyEvent event = new EmergencyEvent();
         event.setOrderId(orderId);
         event.setUserId(userId);
-        event.setTriggerType(TriggerType.BUTTON);
+        event.setTriggerType(triggerType);
         event.setStatus(EmergencyStatus.PENDING);
         event.setGpsLat(request.getGpsLat());
         event.setGpsLng(request.getGpsLng());

@@ -199,6 +199,14 @@ public class TestHelper {
         return rest.postForEntity("/api/volunteer/location", jsonEntity(token, body), String.class);
     }
 
+    /** 盲人上报位置 */
+    public void updateBlindLocation(String token, double lat, double lng) {
+        String body = "{\"latitude\":" + lat + ",\"longitude\":" + lng + "}";
+        ResponseEntity<String> response = rest.postForEntity(
+                "/api/blind/location", jsonEntity(token, body), String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
     // ==================== 订单相关 ====================
 
     /** 盲人创建订单，返回 orderId */
@@ -285,6 +293,12 @@ public class TestHelper {
         if (token != null) headers.set("Authorization", "Bearer " + token);
         return rest.exchange("/api/orders/" + orderId, HttpMethod.GET,
                 new HttpEntity<>(headers), String.class);
+    }
+
+    /** 查询订单双方历史轨迹，返回完整响应 */
+    public ResponseEntity<String> getOrderTrack(String token, Long orderId) {
+        return rest.exchange("/api/orders/" + orderId + "/track", HttpMethod.GET,
+                new HttpEntity<>(authOnlyHeaders(token)), String.class);
     }
 
     /** 查询附近可接订单 */

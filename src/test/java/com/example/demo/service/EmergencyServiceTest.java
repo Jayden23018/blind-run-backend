@@ -177,6 +177,21 @@ class EmergencyServiceTest {
         verify(geocodingService, never()).reverseGeocode(any(), any());
     }
 
+    /** triggerType 重载：走散检测（AI_DETECTED）触发时事件记录的 triggerType 为 AI_DETECTED，而非默认 BUTTON */
+    @Test
+    void triggerEmergency_withAiDetectedType_recordsAiDetectedTriggerType() {
+        mockHappyPathDependencies();
+        when(geocodingService.reverseGeocode(any(), any())).thenReturn(Optional.of("上海市浦东新区世纪大道"));
+
+        EmergencyTriggerRequest req = new EmergencyTriggerRequest();
+        req.setGpsLat(new BigDecimal("31.23"));
+        req.setGpsLng(new BigDecimal("121.47"));
+
+        EmergencyEvent event = emergencyService.triggerEmergency(100L, req, TriggerType.AI_DETECTED);
+
+        assertEquals(TriggerType.AI_DETECTED, event.getTriggerType());
+    }
+
     /** S5：无紧急联系人时，盲人收到 EMERGENCY_NO_CONTACT 通知，事件转 CS_HANDLING（防 TimeoutScheduler 重复 escalate） */
     @Test
     void escalate_noPrimaryContact_notifiesBlindAndHandsToCs() {

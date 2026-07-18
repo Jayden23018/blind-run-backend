@@ -343,6 +343,7 @@ PENDING_MATCH → PENDING_ACCEPT → DRIVER_EN_ROUTE → DRIVER_ARRIVED → IN_P
 | GET | `/api/orders/{id}` | 订单详情 | 任意 |
 | GET | `/api/orders/mine` | 我的订单列表 | 任意 |
 | GET | `/api/orders/{id}/status-logs` | 状态变更日志 | 任意 |
+| GET | `/api/orders/{id}/track` | 陪跑轨迹回放（历史路径 + 统计） | 任意 |
 | POST | `/api/orders/{id}/review` | 提交评价 | 任意 |
 | GET | `/api/orders/{id}/reviews` | 获取评价 | 任意 |
 
@@ -358,6 +359,42 @@ PENDING_MATCH → PENDING_ACCEPT → DRIVER_EN_ROUTE → DRIVER_ARRIVED → IN_P
 ```
 
 > **前置条件**: 盲人用户必须至少有 1 个紧急联系人才能创建订单
+
+#### 陪跑轨迹回放
+
+订单结束后，双方可查看本次陪跑的完整路径回放（类似健身 App 的轨迹地图）。鉴权与 `GET /api/orders/{id}` 一致（仅订单双方本人可访问，否则 403）。
+
+```
+GET /api/orders/{id}/track
+Authorization: Bearer <token>
+```
+
+**响应（`OrderTrackResponse`）**:
+```json
+{
+  "volunteerTrack": [
+    { "lat": 39.9042, "lng": 116.4074, "recordedAt": "2026-04-20T14:05:00" },
+    { "lat": 39.9045, "lng": 116.4078, "recordedAt": "2026-04-20T14:05:10" }
+  ],
+  "volunteerStats": { "distanceMeters": 850.5, "durationSeconds": 620, "avgPaceSecPerKm": 365.2 },
+  "blindTrack": [
+    { "lat": 39.9042, "lng": 116.4074, "recordedAt": "2026-04-20T14:05:00" }
+  ],
+  "blindStats": { "distanceMeters": 830.1, "durationSeconds": 620, "avgPaceSecPerKm": 372.0 }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| volunteerTrack / blindTrack | array | 各自的轨迹点列表，按时间升序；覆盖整个订单 `IN_PROGRESS` 阶段，约每 10 秒抽稀一个点（并非每次原始 GPS 上报都入库） |
+| volunteerTrack[].lat / lng | number | 纬度 / 经度 |
+| volunteerTrack[].recordedAt | string | 记录时间（ISO 格式） |
+| volunteerStats / blindStats | object | 各自的统计数据 |
+| xxxStats.distanceMeters | number | 总里程（米） |
+| xxxStats.durationSeconds | number | 耗时（秒） |
+| xxxStats.avgPaceSecPerKm | number \| null | 平均配速（秒/公里）；该角色轨迹点少于 2 个时为 `null`（对应统计字段也全为 0） |
+
+> **抽稀间隔可配**: `app.track.sample-interval-seconds`（默认 10 秒）
 
 ### 3.8 紧急求助
 
@@ -489,6 +526,33 @@ ws.onclose = () => {
 }
 ```
 
+#### 接收盲人位置更新（志愿者端）
+```json
+{
+  "type": "BLIND_LOCATION_UPDATE",
+  "orderId": 123,
+  "lat": 39.9050,
+  "lng": 116.4080,
+  "timestamp": 1716480000000
+}
+```
+> **推送时机**: 订单状态为 `DRIVER_EN_ROUTE`（志愿者出发）、`DRIVER_ARRIVED`（志愿者到达）或 `IN_PROGRESS`（陪跑进行中）时，每次盲人上报位置都会自动推送给对应志愿者；与盲人端接收的 `VOLUNTEER_LOCATION_UPDATE`（见 4.4）方向相反、格式相同，`IN_PROGRESS` 阶段用于陪跑中双方实时同步位置（详见 4.4 中的对称说明）。
+
+#### 走散告警
+`IN_PROGRESS`（陪跑中）阶段，若双方实时 GPS 距离超过阈值（默认 100 米，`app.escort.max-distance-meters` 可配），双方各自收到一条走散提醒（`eventType: ESCORT_DISTANCE_ALERT`，仍走上方"通用通知"消息格式，`type` 字段为 `NOTIFICATION`/`APP_NOTIFICATION`）：
+```json
+{
+  "type": "NOTIFICATION",
+  "data": {
+    "eventType": "ESCORT_DISTANCE_ALERT",
+    "message": "与盲人用户的距离似乎有点远",
+    "ttsText": "你和盲人用户的距离似乎有点远，请尽快确认对方位置",
+    "priority": "HIGH"
+  }
+}
+```
+> 盲人端收到的文案对应为「与志愿者的距离似乎有点远」/「你和志愿者的距离似乎有点远，请留在原地，志愿者正在确认位置」。同一次距离越界会**并行**触发既有紧急升级流程（`triggerType: AI_DETECTED`）通知客服介入，二者互不替代：走散告警是双端的即时轻量提醒，紧急升级是走向客服的分级处理。
+
 #### 心跳
 ```json
 // 客户端发送
@@ -512,7 +576,7 @@ ws.onclose = () => {
 
 盲人用户连接 `/ws/blind` 端点，用于：
 - 上报自己的实时位置（与 REST `POST /api/blind/location` 效果相同）
-- **实时接收志愿者位置更新**（订单状态为出发/到达时自动推送）
+- **实时接收志愿者位置更新**（订单状态为出发/到达/陪跑进行中时自动推送）
 
 ```javascript
 const token = localStorage.getItem('token');
@@ -549,7 +613,7 @@ blindWs.send(JSON.stringify({ type: "PING" }));
 }
 ```
 
-> **推送时机**: 订单状态为 `DRIVER_EN_ROUTE`（志愿者出发）或 `DRIVER_ARRIVED`（志愿者到达）时，每次志愿者上报位置都会自动推送给对应盲人用户。
+> **推送时机**: 订单状态为 `DRIVER_EN_ROUTE`（志愿者出发）、`DRIVER_ARRIVED`（志愿者到达）或 `IN_PROGRESS`（陪跑进行中）时，每次志愿者上报位置都会自动推送给对应盲人用户；`IN_PROGRESS` 阶段此前存在推送空档（只推到 `DRIVER_ARRIVED`），现已补全，用于陪跑中双方实时同步位置。志愿者端对称地通过 `BLIND_LOCATION_UPDATE` 接收盲人位置（见 4.2）。
 
 ### 4.5 REST 降级查询
 
@@ -626,6 +690,9 @@ Authorization: Bearer <token>
 | 订单取消 & 重新匹配 | 支持双方取消 |
 | WebSocket 实时推送 | 订单通知、紧急警报、通用通知 |
 | 志愿者位置上报 | REST + WebSocket 双通道 |
+| 陪跑实时位置互推 | `IN_PROGRESS` 阶段双方通过 WS 互相接收对方位置（`VOLUNTEER_LOCATION_UPDATE` / `BLIND_LOCATION_UPDATE`） |
+| 陪跑轨迹回放 | `GET /api/orders/{id}/track`，历史路径 + 里程/耗时/配速统计 |
+| 走散检测告警 | `IN_PROGRESS` 阶段双方距离超阈值（默认 100 米）时 WS 实时提醒双方 |
 | 紧急求助触发 | 盲人/志愿者触发 |
 | 志愿者紧急响应 | 30 秒超时 |
 | 客服紧急事件处理 | 接手、通知联系人、解决、标记误报 |
@@ -649,7 +716,7 @@ Authorization: Bearer <token>
 |------|------|
 | AI 语音外呼 | 框架预留（`AI_VOICE_CALL` 枚举），未实现 |
 | App 推送 | 枚举定义存在，未接入推送服务 |
-| AI 自动检测紧急 | 预留字段，未实现 |
+| AI 自动检测紧急 | 部分实现：陪跑走散检测（GPS 距离超阈值）会以 `triggerType: AI_DETECTED` 触发紧急升级，通用 AI 异常检测仍未实现 |
 
 ---
 
