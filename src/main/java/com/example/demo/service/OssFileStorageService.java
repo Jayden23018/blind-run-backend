@@ -105,6 +105,18 @@ public class OssFileStorageService implements FileStorageService {
         return ossClient.generatePresignedUrl(bucketName, key, expiration).toString();
     }
 
+    @Override
+    public void delete(String key) {
+        if (key == null || key.isBlank() || key.startsWith("http://") || key.startsWith("https://")) {
+            return;
+        }
+        try {
+            ossClient.deleteObject(bucketName, key);
+        } catch (Exception e) {
+            log.warn("OSS 文件删除失败: {}", key, e);
+        }
+    }
+
     private String extractAndValidateExtension(String originalName) {
         if (originalName == null || !originalName.contains(".")) {
             throw new IllegalArgumentException("文件必须包含扩展名");

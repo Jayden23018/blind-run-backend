@@ -62,6 +62,15 @@ public class LocalFileStorageService implements FileStorageService {
         return key;
     }
 
+    @Override
+    public void delete(String key) {
+        try {
+            Files.deleteIfExists(Paths.get(key));
+        } catch (IOException e) {
+            log.warn("本地文件删除失败: {}", key, e);
+        }
+    }
+
     /**
      * 提取并验证文件扩展名
      * @throws IllegalArgumentException 如果扩展名不在白名单中

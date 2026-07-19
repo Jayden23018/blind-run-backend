@@ -22,6 +22,9 @@ public interface RunOrderRepository extends JpaRepository<RunOrder, Long> {
     /** 查询某个用户是否有进行中的订单 */
     boolean existsByBlindUserIdAndStatusIn(Long blindUserId, List<OrderStatus> statuses);
 
+    /** 查询某个志愿者是否有进行中的订单（账号注销校验用） */
+    boolean existsByVolunteerIdAndStatusIn(Long volunteerId, List<OrderStatus> statuses);
+
     /** 根据订单ID和状态查询订单 */
     Optional<RunOrder> findByIdAndStatus(Long id, OrderStatus status);
 

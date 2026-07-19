@@ -15,4 +15,9 @@ public interface FileStorageService {
      * 根据文件 key 生成可访问的 URL（OSS 返回签名 URL，local 原样返回）
      */
     String getUrl(String key);
+
+    /**
+     * 删除文件（账号注销等场景清理已上传文件）
+     */
+    void delete(String key);
 }

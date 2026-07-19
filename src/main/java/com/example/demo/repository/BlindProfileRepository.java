@@ -12,4 +12,7 @@ import java.util.Optional;
 public interface BlindProfileRepository extends JpaRepository<BlindProfile, Long> {
     Optional<BlindProfile> findByUserId(Long userId);
     List<BlindProfile> findByUserIdIn(Collection<Long> userIds);
+
+    /** 账号注销级联清理 */
+    void deleteByUserId(Long userId);
 }

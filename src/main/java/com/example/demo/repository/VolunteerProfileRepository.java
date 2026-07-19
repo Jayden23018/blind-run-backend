@@ -22,6 +22,9 @@ public interface VolunteerProfileRepository extends JpaRepository<VolunteerProfi
     List<VolunteerProfile> findByVerificationStatus(VerificationStatus status);
     long countByRegistrationStep(RegistrationStep step);
 
+    /** 账号注销级联清理 */
+    void deleteByUserId(Long userId);
+
     /**
      * 原子更新接单统计（C6 修复：native query + ROUND 消除浮点精度问题）
      *
