@@ -7,7 +7,9 @@
 > - 新评审发现的问题，按优先级（P0 > P1 > P2）追加到「待处理」对应区块。
 > - 每条标注信息可信度：**【已确证】**（读代码/文档确认）或 **【⚠️ 待核实】**（概括，需进一步核实）。
 
-**最近更新**：2026-07-16（S12：`.claude/settings.json` 明文泄露阿里云 AccessKey+CS管理员密码哈希，已清理当前文件并提交，密钥已由用户在阿里云控制台轮换；V6：产品决策去除接单前置的注册/培训门槛，先上线再说；已修复本地代码并测试通过，待部署到生产）
+**最近更新**：2026-07-19（安全审计整改：紧急事件 GPS 坐标脱敏 + 盲人离线位置未清理两处 CONFIRMED 缺陷、CS_ADMIN 原始坐标查看权限、GPS 90 天留存清理、志愿者可见盲人姓名脱敏）
+
+**2026-07-18**：PR1：账号注销流程加固——活跃订单校验补全（盲人侧遗漏 `DRIVER_EN_ROUTE`/`DRIVER_ARRIVED`、志愿者侧此前完全没有校验）+ PII 级联清理（`BlindProfile`/`VolunteerProfile`/`EmergencyContact`/`RunOrderTrackPoint`/OSS 证件照片），新增 `UserServiceTest`；此前"账号注销功能整体缺失"的表述系误判，现予更正
 
 ---
 
@@ -15,9 +17,9 @@
 
 | 优先级 | 已解决 | 待处理 |
 |--------|--------|--------|
-| P0（影响核心功能/安全） | ✅ 10 / 10 | 0 |
-| P1（重要，应修） | ✅ 16 / 16 | 1（SMS-A3：短信模板参数格式） |
-| P2（增强/优化） | ✅ 8 / 8 | 2（T2/T3，文档缺口） |
+| P0（影响核心功能/安全） | ✅ 12 / 12 | 0 |
+| P1（重要，应修） | ✅ 20 / 20 | 0 |
+| P2（增强/优化） | ✅ 9 / 9 | 2（T2/T3 文档缺口） |
 
 **评审来源**：2026-06-17 首次全面代码评审。
 
@@ -27,6 +29,44 @@
 ---
 
 ## ✅ 已解决
+
+### [P0] S13 · 紧急事件 WS 广播泄露原始 GPS 给全体客服 — `2026-07-19` 【已确证】
+
+- **问题**：`NotificationService.sendEmergencyAlert()` 向 `sessionRegistry.sendToCs()`（所有在线客服，不区分 CS/ADMIN）广播时直接带 `gpsLat`/`gpsLng` 原始坐标，与 REST 接口 `EmergencyEventResponse`（已用 `hasGpsLocation` 布尔值脱敏）不一致。
+- **影响**：普通客服（非 ADMIN）本不该看到盲人原始位置，WS 推送绕过了 REST 层已有的脱敏设计；`/ws/cs` 端点当前未注册（`WebSocketConfig` 未配置），此推送目前实际不可达，但属于设计一致性/纵深防御问题。
+- **方案**：`sendEmergencyAlert()` 改为推送 `hasGpsLocation` 布尔值，不含原始坐标；`sendEmergencyVolunteerAlert()`（推给志愿者本人）保留原始坐标不变（志愿者需要坐标定位盲人）。
+- **涉及文件**：`NotificationService.sendEmergencyAlert`
+- **验证**：`gradlew compileJava` + `gradlew test` 全量通过。
+
+### [P0] S14 · 盲人 WebSocket 断开未清理 Redis 位置缓存 — `2026-07-19` 【已确证】
+
+- **问题**：`BlindWebSocketHandler.afterConnectionClosed()` 只注销 session，未清理 `blind:loc:{userId}` Redis key；志愿者侧断开时 `VolunteerLocationService.setOffline()` 会清理对应 key，两侧不对称。
+- **影响**：盲人断线后，`blind:loc:{userId}` 仍存活到 TTL（30 秒）到期才失效，期间陪跑中的志愿者/客服可能读到过期位置。
+- **方案**：新增 `BlindLocationService.clearLocation(userId)`（`redisTemplate.delete`），在 `afterConnectionClosed()` 中调用，与志愿者侧对称。
+- **涉及文件**：`BlindLocationService.clearLocation`、`BlindWebSocketHandler.afterConnectionClosed`
+- **验证**：`gradlew compileJava` + `gradlew test` 全量通过。
+
+### [P1] S15 · 志愿者端泄露盲人真实姓名（手机号已脱敏，姓名未脱敏） — `2026-07-19` 【已确证】
+
+- **问题**：`VolunteerService.toActiveOrder()`/`toRecentOrder()`（供 `GET /api/volunteer/dispatch-summary` 用）中 `blind.getName()` 原样返回，同一 DTO 里手机号已经过 `PhoneMaskUtils.mask()` 脱敏，姓名却遗漏。
+- **影响**：志愿者可看到服务对象的完整真实姓名，与手机号脱敏的隐私最小化原则不一致。
+- **方案**：新增 `NameMaskUtils.mask()`（保留首字符，其余替换为 `*`，1 字符姓名整体替换为 `*`），应用于 `toActiveOrder()`/`toRecentOrder()` 两处 `blindName` 字段。
+- **涉及文件**：`util/NameMaskUtils.java`（新增）、`VolunteerService.toActiveOrder`、`VolunteerService.toRecentOrder`
+- **验证**：`gradlew compileJava` + `gradlew test` 全量通过。
+
+### [P1] S16 · 客服管理员（CS_ADMIN）新增原始 GPS 坐标查看权限 — `2026-07-19` 【已确证】
+
+- **背景**：紧急事件坐标此前对所有客服统一脱敏（`hasGpsLocation` 布尔值），但管理员处理升级事件（如联系家属/报警）时需要精确坐标。
+- **方案**：`GET /api/cs/emergency-events` 从 JWT `csRole` claim（服务端登录时设置，非用户可控）判断，`"ADMIN".equals(csRole)` 时 `EmergencyEventResponse` 附带原始 `gpsLat`/`gpsLng`；普通客服（CS）仍只见 `hasGpsLocation`。同时补充 `status` 查询参数（此前定义未使用），支持按状态筛选历史事件；管理员查看原始坐标时记 `log.info` 审计。
+- **涉及文件**：`CsController.getPendingEvents`、`EmergencyEventResponse.from(event, includeRawGps)`、`EmergencyService.getEventsByStatus`
+- **验证**：`gradlew compileJava` + `gradlew test` 全量通过；security-reviewer agent 复核 `csRole` 鉴权链路（JWT 签名保证不可伪造）无绕过风险。
+
+### [P2] S17 · 紧急事件原始 GPS 坐标新增 90 天留存清理 — `2026-07-19` 【已确证】
+
+- **背景**：`EmergencyEvent.gpsLat/gpsLng` 此前永久保留，与 `RunOrderTrackPoint` 已有的 90 天留存策略（`docs/轨迹数据留存策略.md`）不一致。
+- **方案**：新增 `EmergencyGpsRetentionScheduler`（每日凌晨 3 点，复用 `SchedulerLockService` 分布式锁模式），仅清空超过 `app.emergency.gps-retention-days`（默认 90）天事件的 `gpsLat`/`gpsLng`，**不删除事件行本身**（`status`/`csNotes`/`triggerType` 等仍用于纠纷复核审计，与账号注销级联清理的两方记录保留原则一致）。新增仓储方法 `EmergencyEventRepository.clearGpsBefore()`（`@Modifying @Transactional @Query` UPDATE）。
+- **涉及文件**：`scheduler/EmergencyGpsRetentionScheduler.java`（新增）、`EmergencyEventRepository.clearGpsBefore`、`application.properties`（`app.emergency.gps-retention-days=90`）
+- **验证**：`gradlew compileJava` + `gradlew test` 全量通过。
 
 ### [P0] S1 · Token 黑名单改为按签发时间比对 — `2026-06-17` 【已确证】
 
@@ -321,6 +361,31 @@
 
 ---
 
+### [P1] SMS-A3 · EMERGENCY_ALERT 短信模板参数格式被阿里云拒绝 — `2026-06-20` 【已确证，2026-07-18 已解决】
+
+- **问题**：`EmergencyService.sendEmergencyAlertSms` 发送紧急短信时，阿里云 EMERGENCY_ALERT 模板拒绝 `location`（坐标降级格式，模板变量类型为 `[地址]`）和 `time`（`LocalDateTime.toString()` 含纳秒，模板变量类型为 `[时间]`）两个变量，错误码 `isv.TEMPLATE_PARAMS_ILLEGAL`。
+- **影响**：所有紧急短信通知到联系人的发送均失败（E1 已修 try-catch 不影响业务流程返回 200，但联系人实际收不到短信）。
+- **方案**：采用方案 A——阿里云控制台把 `location`/`time` 模板变量类型改为"自定义"（不限制格式），无需改代码。
+- **验证方式**：用户在阿里云控制台手动修改模板配置确认已生效；代码侧（`EmergencyService.formatLocation`）未改动。
+- **涉及文件**：阿里云 SMS 模板配置（EMERGENCY_ALERT，仅控制台配置变更，无代码 diff）。
+
+---
+
+### [P1] PR1 · 账号注销流程加固：活跃订单校验补全 + PII 级联清理 — `2026-07-18` 【已确证】
+
+- **问题**：`UserService.deleteAccount()`（账号注销功能本身从项目初始 commit 起就存在，此前 ISSUES 中"账号注销功能整体缺失/无处挂载清理步骤"的表述系误判，现予更正）存在三处缺口：
+  1. 活跃订单校验只检查盲人侧，且状态列表遗漏 `DRIVER_EN_ROUTE`/`DRIVER_ARRIVED`——盲人可在志愿者已出发/已到达时注销账号。
+  2. 志愿者侧完全没有活跃订单校验——志愿者可在被派单/陪跑中随时注销，订单和盲人被晾在半空。
+  3. 注销只混淆 `User.phone`，`BlindProfile`/`VolunteerProfile`（含身份证号、人脸核验 ID）、`EmergencyContact`、`RunOrderTrackPoint`（行踪轨迹，PIPL 敏感个人信息）等关联 PII 全部原样保留，OSS 证件照片也不会被清理。
+- **方案**：
+  - `UserService` 新增 `BLIND_ACTIVE_ORDER_STATUSES`（补齐 `DRIVER_EN_ROUTE`/`DRIVER_ARRIVED`）与 `VOLUNTEER_ACTIVE_ORDER_STATUSES`（`PENDING_ACCEPT`/`IN_PROGRESS`/`DRIVER_EN_ROUTE`/`DRIVER_ARRIVED`，不含 `PENDING_MATCH`/`REMATCHING`——这两个状态下 `order.volunteer` 已被 `OrderLifecycleService` 置空），复用已有 `ErrorCode.ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED`（409）。`RunOrderRepository` 新增 `existsByVolunteerIdAndStatusIn`。
+  - `deleteAccount()` 通过校验后新增 `cascadeDeletePii()`：清空 `User.name`；盲人侧删 `BlindProfile`+`EmergencyContact`；志愿者侧删 `VolunteerProfile`+`VolunteerAvailableTime`，并通过新增的 `FileStorageService.delete(key)` 清理 OSS/本地证件照片（非阻断式，失败仅记日志）；两种角色统一清理 `RunOrderTrackPoint`（新增 `deleteByUserId`，覆盖用户作为盲人/志愿者两种角色产生的轨迹点）。
+  - **两方记录保留策略**：`RunOrder`/`OrderReview`/`EmergencyEvent`/`OrderStatusLog` 等表不直接存储姓名/手机号（仅存 `userId`），本次不改动，仅需保证 `User` 本身正确匿名化即可满足最小必要原则，同时保留纠纷复核/审计轨迹（参考网约车行业通行做法）。
+- **涉及文件**：`UserService`、`RunOrderRepository`、`BlindProfileRepository`、`VolunteerProfileRepository`、`RunOrderTrackPointRepository`、`FileStorageService`+`LocalFileStorageService`+`OssFileStorageService`；新增 `UserServiceTest`（此前零覆盖）。详见 `docs/轨迹数据留存策略.md` 第 4 节。
+- **验证**：`gradlew test` 全量通过（含新增 `UserServiceTest` 覆盖活跃订单校验两侧、PII 级联删除、OSS 文件清理条件分支、越权注销拒绝）。
+
+---
+
 ## ✅ 已解决 — 前端联调反馈（FE 系列，2026-06-22）
 
 > 来源：前端联调阶段反馈的 6 项后端问题。详见 [CHANGELOG 1.5.0](./CHANGELOG.md#150---2026-06-22)。
@@ -364,22 +429,6 @@
 
 ---
 
-## 🟡 待处理 — P1（重要，应修）
-
-### [P1] SMS-A3 · EMERGENCY_ALERT 短信模板参数格式被阿里云拒绝 — `2026-06-20` 【已确证】
-
-- **问题**：`EmergencyService.sendEmergencyAlertSms` 发送紧急短信时，阿里云 EMERGENCY_ALERT 模板拒绝以下两个变量：
-  - `location`：发送的是"纬度22.54310 经度114.05790"（A2 的坐标降级格式），但阿里云模板变量类型为 `[地址]`，拒绝纯坐标格式（错误码 `isv.TEMPLATE_PARAMS_ILLEGAL`）。
-  - `time`：发送的是 `LocalDateTime.toString()`（含纳秒的 ISO 8601 字符串，如 `2026-06-20T01:49:45.611396364`），阿里云模板变量类型为 `[时间]`，要求更短的格式（如 `HH:mm`）。
-- **影响**：所有紧急短信通知到联系人的发送均失败（含 `notifyContact`、`escalateToEmergencyContacts`）。E1 已修 try-catch，SMS 失败不影响业务流程返回 200，但联系人实际收不到短信。
-- **日志**：`阿里云短信发送失败: Code=isv.TEMPLATE_PARAMS_ILLEGAL, Message=模版中的变量location(...) 不符合[地址]的变量规范!模版中的变量time(...) 不符合[时间]的变量规范!`
-- **方案（两选一）**：
-  - 方案 A（推荐）：修改阿里云短信模板，把 `location` 的变量类型改为"自定义"（不限制格式），`time` 改为"自定义"或修改模板直接用具体格式（如 `${date} ${hour}时${minute}分`）；
-  - 方案 B：修改代码，`time` 改为格式化字符串（如 `HH:mm`），`location` 需改阿里云模板类型（代码侧无法解决格式约束）。
-- **阻塞点**：需阿里云控制台修改短信模板配置（非纯代码可修）。
-- **涉及文件**：`EmergencyService.formatLocation`（或调用方）、阿里云 SMS 模板配置
-
----
 
 ## 🟡 待处理 — P2（增强/优化）
 

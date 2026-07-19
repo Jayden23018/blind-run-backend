@@ -23,6 +23,7 @@ import com.example.demo.repository.RunOrderRepository;
 import com.example.demo.repository.VolunteerAvailableTimeRepository;
 import com.example.demo.repository.VolunteerProfileRepository;
 import com.example.demo.repository.UserRepository;
+import com.example.demo.util.NameMaskUtils;
 import com.example.demo.util.PhoneMaskUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
@@ -238,7 +239,7 @@ public class VolunteerService {
                 o.getStartAddress(),
                 o.getStartLatitude(),
                 o.getStartLongitude(),
-                blind.getName(),
+                NameMaskUtils.mask(blind.getName()),
                 PhoneMaskUtils.mask(blind.getPhone()),
                 o.getAcceptedAt()
         );
@@ -253,7 +254,7 @@ public class VolunteerService {
                 o.getFinishedAt(),
                 rating,
                 o.getStartAddress(),
-                o.getBlindUser().getName()
+                NameMaskUtils.mask(o.getBlindUser().getName())
         );
     }
 

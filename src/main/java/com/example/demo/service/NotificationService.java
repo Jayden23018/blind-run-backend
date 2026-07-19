@@ -174,6 +174,21 @@ public class NotificationService {
     }
 
     /**
+     * 发送信号缺失告警（WebSocket → 志愿者 + 盲人）—— 对方 GPS 信号连续缺失时的兜底通知，
+     * 区别于 sendEscortDistanceAlert（能定位但距离过远），此处根本联系不上对方
+     */
+    public void sendEscortSignalLostAlert(Long orderId, Long blindUserId, Long volunteerId) {
+        try {
+            sendNotification(blindUserId, "ESCORT_SIGNAL_LOST", TargetRole.BLIND_USER, null);
+            sendNotification(volunteerId, "ESCORT_SIGNAL_LOST", TargetRole.VOLUNTEER, null);
+            logNotification(orderId, blindUserId, NotificationChannel.WEBSOCKET, "信号缺失告警");
+            logNotification(orderId, volunteerId, NotificationChannel.WEBSOCKET, "信号缺失告警");
+        } catch (Exception e) {
+            log.error("发送信号缺失告警失败: {}", e.getMessage());
+        }
+    }
+
+    /**
      * 查询通知模板（带缓存）
      * 缓存 key = eventType + '_' + targetRole，模板更新时 @CacheEvict 清除
      */
@@ -210,8 +225,7 @@ public class NotificationService {
             msg.put("eventId", event.getId());
             msg.put("userId", event.getUserId());
             msg.put("orderId", event.getOrderId());
-            msg.put("gpsLat", event.getGpsLat());
-            msg.put("gpsLng", event.getGpsLng());
+            msg.put("hasGpsLocation", event.getGpsLat() != null && event.getGpsLng() != null);
             msg.put("priority", NotificationPriority.HIGH.name());
             msg.put("triggeredAt", event.getTriggeredAt().toString());
 

@@ -123,6 +123,7 @@ public class BlindWebSocketHandler extends TextWebSocketHandler {
         if (userId != null) {
             sessionRegistry.unregister(userId);
             lastMessageTime.remove(userId);
+            blindLocationService.clearLocation(userId);
             log.info("盲人用户 {} WebSocket 已断开", userId);
         }
     }

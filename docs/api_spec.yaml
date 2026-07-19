@@ -1,7 +1,10 @@
 openapi: 3.1.0
 info:
   title: 助盲跑 API
-  description: 盲人陪跑志愿者匹配服务
+  description: |
+    盲人陪跑志愿者匹配服务
+
+    坐标系约定（2026-07-19 确认）：全部接口的 lat/lng（含 gpsLat/gpsLng）统一使用 GCJ-02（国测局加密坐标，与高德/腾讯定位 SDK 输出一致），前端上报定位需使用高德/腾讯定位 SDK 输出值，不要使用系统原生 GPS 的 WGS-84 原始值。
   version: 1.0.0
 servers:
 - url: http://localhost:8081
@@ -1407,6 +1410,11 @@ paths:
       tags:
       - cs-controller
       operationId: getPendingEvents
+      description: >-
+        不传 status 返回待处理事件列表（PENDING/VOLUNTEER_NOTIFIED/VOLUNTEER_CONFIRMED/CONTACT_NOTIFIED），
+        传 status 按指定状态筛选（如查看历史，无效值返回 400）。
+        响应中 gpsLat/gpsLng 仅当调用者 JWT csRole=ADMIN 时非空；普通客服（CS）该两字段恒为 null，
+        应以 hasGpsLocation 布尔值判断是否有定位数据。
       parameters:
       - name: status
         in: query

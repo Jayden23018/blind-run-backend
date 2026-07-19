@@ -197,6 +197,11 @@ public class EmergencyService {
                         EmergencyStatus.VOLUNTEER_CONFIRMED, EmergencyStatus.CONTACT_NOTIFIED));
     }
 
+    /** 按指定状态查询（客服端可选筛选，如查看已处理/已解决历史） */
+    public List<EmergencyEvent> getEventsByStatus(EmergencyStatus status) {
+        return eventRepository.findByStatusIn(List.of(status));
+    }
+
     /**
      * 客服接手
      */

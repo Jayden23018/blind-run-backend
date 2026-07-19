@@ -2,7 +2,9 @@ package com.example.demo.controller;
 
 import com.example.demo.dto.EmergencyEventResponse;
 import com.example.demo.entity.EmergencyEvent;
+import com.example.demo.entity.EmergencyStatus;
 import com.example.demo.service.EmergencyService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -19,6 +21,7 @@ import java.util.Map;
  *
  * 所有接口需要客服 JWT 鉴权（csRole claim 存在即为客服）
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/cs")
 public class CsController {
@@ -44,18 +47,41 @@ public class CsController {
         return (Long) auth.getPrincipal();
     }
 
-    /** 客服获取待处理紧急事件列表 */
+    /** 客服 csRole（CS / ADMIN），由 requireCsUser() 校验通过后调用 */
+    private String getCsRole() {
+        return (String) SecurityContextHolder.getContext().getAuthentication().getDetails();
+    }
+
+    /** 客服获取紧急事件列表；不传 status 默认待处理列表，传 status 按指定状态筛选（如查看历史） */
     @GetMapping("/emergency-events")
     public ResponseEntity<?> getPendingEvents(
             @RequestParam(required = false) String status) {
+        Long csUserId;
         try {
-            requireCsUser();
+            csUserId = requireCsUser();
         } catch (RuntimeException e) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", e.getMessage()));
         }
-        List<EmergencyEvent> events = emergencyService.getPendingEvents();
+
+        List<EmergencyEvent> events;
+        if (status != null) {
+            EmergencyStatus parsed;
+            try {
+                parsed = EmergencyStatus.valueOf(status);
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity.badRequest().body(Map.of("error", "无效的状态值: " + status));
+            }
+            events = emergencyService.getEventsByStatus(parsed);
+        } else {
+            events = emergencyService.getPendingEvents();
+        }
+
+        boolean isAdmin = "ADMIN".equals(getCsRole());
+        if (isAdmin && !events.isEmpty()) {
+            log.info("客服管理员 {} 查看紧急事件原始GPS坐标，事件数={}", csUserId, events.size());
+        }
         List<EmergencyEventResponse> responses = events.stream()
-                .map(EmergencyEventResponse::from)
+                .map(e -> EmergencyEventResponse.from(e, isAdmin))
                 .toList();
         return ResponseEntity.ok(responses);
     }

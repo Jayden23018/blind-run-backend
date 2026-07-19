@@ -308,6 +308,7 @@ public class VolunteerLocationService {
         try {
             Map<String, Double> blindLoc = blindLocationService.getLocation(blindUserId);
             if (blindLoc == null) {
+                escortSafetyService.checkSignalMissing(order);
                 return;
             }
             escortSafetyService.checkDistance(order, volunteerLat, volunteerLng, blindLoc.get("lat"), blindLoc.get("lng"));

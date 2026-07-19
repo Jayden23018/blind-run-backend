@@ -111,6 +111,7 @@ public class BlindLocationService {
         try {
             Map<String, Double> volunteerLoc = getVolunteerLocation(volunteerId);
             if (volunteerLoc == null) {
+                escortSafetyService.checkSignalMissing(order);
                 return;
             }
             escortSafetyService.checkDistance(order, volunteerLoc.get("lat"), volunteerLoc.get("lng"), blindLat, blindLng);
@@ -139,6 +140,13 @@ public class BlindLocationService {
             log.warn("解析志愿者 {} 位置数据失败: {}", volunteerId, e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * 清除盲人位置（WebSocket 断开时调用，与 VolunteerLocationService.setOffline() 对称）
+     */
+    public void clearLocation(Long userId) {
+        redisTemplate.delete(REDIS_KEY_PREFIX + userId);
     }
 
     /**

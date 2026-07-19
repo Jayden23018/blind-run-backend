@@ -42,6 +42,8 @@
 
 > 所有需要认证的接口，在请求头加上：`Authorization: Bearer <token>`
 
+> **坐标系约定（2026-07-19 确认）**：全部接口的 `lat`/`lng`（含 `gpsLat`/`gpsLng`）统一使用 **GCJ-02**（国测局加密坐标，与高德/腾讯定位 SDK 输出一致）。前端上报定位时**不要**使用系统原生 GPS（`CLLocationManager`/原生 `LocationManager`）的 WGS-84 原始值，务必用高德/腾讯定位 SDK 输出的坐标，否则地图展示、走散检测、逆地理编码地址会产生偏移。
+
 ---
 
 ## 二、认证流程
@@ -430,7 +432,7 @@ PENDING → VOLUNTEER_NOTIFIED → VOLUNTEER_CONFIRMED → CONTACT_NOTIFIED → 
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/cs/emergency-events` | 获取紧急事件列表 |
+| GET | `/api/cs/emergency-events?status={status}` | 获取紧急事件列表（`status` 可选，为空时返回未结束事件；传值需为 `EmergencyStatus` 枚举，用于筛选查看历史）。响应含 `gpsLat`/`gpsLng`（**仅 CS_ADMIN 非 null**，CS_CS 恒为 null）+ `hasGpsLocation` 布尔值（两角色皆可用，判断是否有坐标） |
 | PUT | `/api/cs/emergency-events/{id}/accept` | 接手处理 |
 | PUT | `/api/cs/emergency-events/{id}/notify-contact` | 通知紧急联系人 |
 | PUT | `/api/cs/emergency-events/{id}/resolve` | 标记已解决 |
@@ -512,19 +514,23 @@ ws.onclose = () => {
 }
 ```
 
-#### 紧急求助警报
+#### 紧急求助警报（推送给客服，`sendToCs`）
+
+> ⚠️ 当前 `UnifiedSessionRegistry.sendToCs()` 未挂载实际的 `/ws/cs` 端点（无客服 WebSocket 连接入口），此消息目前不会被任何客户端收到。客服/管理员应通过轮询 `GET /api/cs/emergency-events` 获取事件列表（含状态过滤），管理员额外可见 `gpsLat`/`gpsLng` 原始坐标（见 3.9 节）。此处保留消息格式供未来接入 CS WebSocket 时参考。
+
 ```json
 {
-  "type": "EMERGENCY",
-  "data": {
-    "eventId": 456,
-    "orderId": 123,
-    "message": "用户触发紧急求助",
-    "gpsLat": 39.9042,
-    "gpsLng": 116.4074
-  }
+  "type": "EMERGENCY_ALERT",
+  "eventId": 456,
+  "userId": 1,
+  "orderId": 123,
+  "hasGpsLocation": true,
+  "priority": "HIGH",
+  "triggeredAt": "2026-07-19T14:30:00"
 }
 ```
+
+> **2026-07-19 起**：不再包含原始 `gpsLat`/`gpsLng`（S13 修复，避免坐标广播给全体在线客服）；改为 `hasGpsLocation` 布尔值。原始坐标仅 CS_ADMIN 通过 `GET /api/cs/emergency-events` 按需查看。
 
 #### 接收盲人位置更新（志愿者端）
 ```json

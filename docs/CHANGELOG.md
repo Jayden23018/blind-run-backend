@@ -1,5 +1,50 @@
 # 变更日志
 
+## [1.5.2] - 2026-07-19
+
+### 缺陷修复 — 紧急事件 GPS/PII 安全整改
+
+- **紧急事件 WS 广播不再泄露原始坐标**：`sendEmergencyAlert()` 推给全体在线客服的 WebSocket 消息，原始 `gpsLat`/`gpsLng` 改为 `hasGpsLocation` 布尔值，与 REST 接口脱敏口径一致（志愿者端 `sendEmergencyVolunteerAlert()` 不受影响，志愿者仍能看到坐标以便定位盲人）。
+- **盲人 WebSocket 断开新增位置清理**：`blind:loc:{userId}` Redis key 断线时立即清理，与志愿者侧行为对称（此前只能等 30 秒 TTL 自然过期）。
+- **志愿者端盲人姓名脱敏**：`GET /api/volunteer/dispatch-summary` 返回的 `blindName` 字段改为脱敏（保留首字符，如"张*"），与已脱敏的手机号字段口径一致。
+
+### 新增 — CS_ADMIN 原始坐标查看权限 + GPS 留存清理
+
+- **`GET /api/cs/emergency-events` 响应新增 `gpsLat`/`gpsLng` 字段**：仅当客服 JWT 的 `csRole` 为 `ADMIN` 时返回原始坐标；普通客服（`CS`）仍只能看到 `hasGpsLocation` 布尔值。
+- **`GET /api/cs/emergency-events` 新增可选 `status` 查询参数**：按状态筛选事件（如查看已处理历史），不传时保持原有"待处理事件列表"行为。
+- **紧急事件原始 GPS 坐标新增 90 天留存清理**：超期后坐标被清空（事件行本身保留，用于纠纷复核审计），与轨迹数据留存策略（`docs/轨迹数据留存策略.md`）口径一致。新增配置 `app.emergency.gps-retention-days`（默认 90）。
+
+### ⚠️ 升级注意（前端）
+
+- 志愿者端 `dispatch-summary` 接口 `blindName` 字段格式变化：从完整姓名变为脱敏格式（如"张*"），前端展示逻辑无需改动（字符串直接展示即可），但不要再依赖该字段做姓名相关的业务判断。
+- 客服端 `GET /api/cs/emergency-events` 响应新增 `gpsLat`/`gpsLng` 字段（`BigDecimal`，可能为 `null`）：仅管理员账号登录时非空，普通客服账号该字段恒为 `null`，请勿假设非空。
+- 客服端 WebSocket `EMERGENCY_ALERT` 消息不再含 `gpsLat`/`gpsLng`，改为 `hasGpsLocation` 布尔值；如前端曾依赖此推送展示坐标，需改为轮询 REST 接口获取（管理员账号可见原始坐标）。
+
+### 新增 — 坐标系约定确认（GCJ-02）
+
+- 与前端确认：全系统 `lat`/`lng`（含 `gpsLat`/`gpsLng`）统一为 **GCJ-02**（高德/腾讯定位 SDK 输出口径），非系统原生 GPS 的 WGS-84 值。
+- `AmapGeocodingService` 调高德逆地理编码时显式声明 `coordsys=autonavi`（此前依赖高德隐式默认值，行为未变，仅代码层面明确意图，无需前端改动）。
+- 文档同步：`CLAUDE.md`、`docs/api_spec.yaml`（`info.description`）、`docs/frontend-guide.md`（一、基础信息）、`docs/websocket-protocol.md`（一、连接）均已补充该约定说明。
+
+---
+
+## [1.5.1] - 2026-07-18
+
+### 缺陷修复 — 账号注销流程加固
+
+- **活跃订单校验补全**：`DELETE /api/users/{id}` 此前仅检查盲人侧活跃订单状态，且遗漏 `DRIVER_EN_ROUTE`/`DRIVER_ARRIVED` 两个状态；现在盲人侧完整覆盖 `PENDING_MATCH/PENDING_ACCEPT/IN_PROGRESS/DRIVER_EN_ROUTE/DRIVER_ARRIVED/REMATCHING`，且新增志愿者侧校验（`PENDING_ACCEPT/IN_PROGRESS/DRIVER_EN_ROUTE/DRIVER_ARRIVED`）。命中活跃订单时返回 HTTP **409**。
+- **新增 PII 级联清理**：注销通过校验后，同步清空 `User.name`、混淆 `phone`，按角色删除 `BlindProfile`/`EmergencyContact` 或 `VolunteerProfile`/`VolunteerAvailableTime`（志愿者证件照片经 OSS/本地存储一并删除，删除失败仅记日志不阻断），两种角色统一删除陪跑轨迹点 `RunOrderTrackPoint`。`RunOrder`/`OrderReview`/`EmergencyEvent` 等两方记录保留不删（不存 PII，仅存 `userId`，用于纠纷复核审计）。
+
+### ⚠️ 升级注意（前端）
+
+`DELETE /api/users/{id}` 接口本身无新增，请求/响应格式不变，但行为发生变化：
+- 志愿者在陪跑中 / 待出发 / 已被接单时调用该接口现在会收到 **409**（此前会被错误地允许注销）。
+- 盲人在志愿者已出发 / 已到达时调用也会收到 **409**（此前的遗漏漏洞，现已补全）。
+
+前端需确认注销按钮的错误提示能正确展示 409 场景下的"您有进行中的订单，无法注销"提示。
+
+---
+
 ## [Unreleased]
 
 ### 新增
@@ -10,6 +55,8 @@
   - **新增走散告警 `ESCORT_DISTANCE_ALERT`**：`IN_PROGRESS` 阶段若双方 GPS 距离连续 2 次采样都超过阈值（默认 100 米，防止单次 GPS 跳变误报）才触发，双方各收到一条 `NOTIFICATION` 消息（`eventType: ESCORT_DISTANCE_ALERT`，带 `ttsText` + `priority: HIGH`）。同一次触发会**并行**走既有紧急升级流程通知客服，二者互不替代。
   - ⚠️ **前端需要处理的新消息类型**：志愿者 WS 新增 `BLIND_LOCATION_UPDATE`；双方 WS 的 `NOTIFICATION` 消息新增 `eventType: ESCORT_DISTANCE_ALERT` 分支。
   - 新增 DB 表 `run_order_track_point`；**生产部署前必须先执行建表 SQL**（`ddl-auto=validate`，见 `CLAUDE.md` "Production Deployment" 章节）。
+  - **走散检测信号缺失兜底**：此前对方 GPS 信号缺失（Redis key 过期/未上报）时走散检测会静默跳过，等同于志愿者只要关闭定位就能绕过监控。现在连续 2 次检测到信号缺失也会触发告警 + 应急升级，与距离超阈值走同一套"连续确认"防抖逻辑（互不干扰的独立计数器）。⚠️ **双方 WS 的 `NOTIFICATION` 消息新增 `eventType: ESCORT_SIGNAL_LOST` 分支**（文案：暂时无法获取对方位置，正在为你确认安全）；生产部署前需手动插入该模板两行数据（`data.sql` 不在生产跑，见 `CLAUDE.md`）。
+  - **轨迹数据留存策略**：`run_order_track_point` 新增每日定时清理任务（`TrackDataRetentionScheduler`，凌晨 3 点），默认保留 90 天（`app.track.retention-days`），超期硬删除。详见 `docs/轨迹数据留存策略.md`。
 - **`NEW_ORDER` WebSocket 消息新增 `startLatitude`/`startLongitude`**：派单通知现在带订单起跑点经纬度，前端可在地图上标记订单位置（订单实体本就有这俩字段，必填）。
 - **`GET /api/volunteer/dispatch-summary` 新增 `totalCompleted` 字段**：累计**完成**订单次数（订单走到 COMPLETED 才算）。
   - ⚠️ 与 `totalAccepted`（接单次数）区分：`totalAccepted` 是点了 ACCEPT 就算（含接了没跑完的），`totalCompleted` 才是真正完成数。

@@ -54,10 +54,13 @@ public class AmapGeocodingService implements GeocodingService {
         }
         try {
             // 高德 location 参数格式：经度,纬度
+            // 全系统坐标约定为 GCJ-02（前端定位 SDK 输出口径已确认），显式声明 coordsys=autonavi
+            // 避免依赖高德的隐式默认值
             String location = lng.toPlainString() + "," + lat.toPlainString();
             String url = REGEO_URL
                     + "?key=" + URLEncoder.encode(amapKey, StandardCharsets.UTF_8)
-                    + "&location=" + URLEncoder.encode(location, StandardCharsets.UTF_8);
+                    + "&location=" + URLEncoder.encode(location, StandardCharsets.UTF_8)
+                    + "&coordsys=autonavi";
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))

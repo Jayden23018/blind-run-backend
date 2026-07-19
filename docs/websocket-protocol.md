@@ -17,6 +17,8 @@
 - **本地开发**: `ws://localhost:8081/ws/blind?token=xxx`
 - **生产环境**: `ws://47.114.113.171/ws/blind?token=xxx`（Nginx 代理，端口 80）
 
+> **坐标系约定（2026-07-19 确认）**：所有 `LOCATION_UPDATE` 消息及推送消息中的 `lat`/`lng`/`gpsLat`/`gpsLng` 统一使用 **GCJ-02**（与高德/腾讯定位 SDK 输出一致），不要上报系统原生 GPS 的 WGS-84 原始值。
+
 ### 1.2 认证规则
 
 - JWT token 通过 URL query param `?token=xxx` 传递（浏览器 WebSocket API 不支持自定义 header）
