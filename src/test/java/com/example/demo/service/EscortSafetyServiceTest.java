@@ -93,4 +93,35 @@ class EscortSafetyServiceTest {
         verify(redisTemplate, times(1)).delete("escort:breach:1");
         verify(emergencyService, never()).triggerEmergency(any(), any(), any());
     }
+
+    @Test
+    void checkSignalMissing_singleMiss_doesNotTriggerYet() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOps);
+        when(valueOps.increment("escort:missing:1")).thenReturn(1L);
+
+        escortSafetyService.checkSignalMissing(order());
+
+        verify(emergencyService, never()).triggerEmergency(any(), any(), any());
+        verify(notificationService, never()).sendEscortSignalLostAlert(any(), any(), any());
+    }
+
+    @Test
+    void checkSignalMissing_twoConsecutiveMisses_triggersEmergencyAndAlert() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOps);
+        when(valueOps.increment("escort:missing:1")).thenReturn(1L, 2L);
+
+        escortSafetyService.checkSignalMissing(order());
+        escortSafetyService.checkSignalMissing(order());
+
+        verify(emergencyService).triggerEmergency(eq(100L), any(), eq(TriggerType.AI_DETECTED));
+        verify(notificationService).sendEscortSignalLostAlert(1L, 100L, 200L);
+    }
+
+    @Test
+    void checkDistance_afterSignalRestored_clearsMissingCounter() {
+        // 距离比较能走到，说明双方信号都恢复了，应清除信号缺失计数
+        escortSafetyService.checkDistance(order(), 31.23, 121.47, 31.23, 121.47);
+
+        verify(redisTemplate).delete("escort:missing:1");
+    }
 }

@@ -28,6 +28,9 @@ public class EscortSafetyService {
     private static final String BREACH_COUNT_KEY_PREFIX = "escort:breach:";
     private static final long BREACH_COUNT_TTL_SECONDS = 60;
 
+    private static final String MISSING_COUNT_KEY_PREFIX = "escort:missing:";
+    private static final long MISSING_COUNT_TTL_SECONDS = 60;
+
     private final EmergencyService emergencyService;
     private final NotificationService notificationService;
     private final StringRedisTemplate redisTemplate;
@@ -44,6 +47,9 @@ public class EscortSafetyService {
 
     public void checkDistance(RunOrder order, double volunteerLat, double volunteerLng,
                                double blindLat, double blindLng) {
+        // 能走到距离比较说明双方信号都在，清除信号缺失计数，避免信号恢复后残留误触发
+        redisTemplate.delete(MISSING_COUNT_KEY_PREFIX + order.getId());
+
         double distanceMeters = GeoUtils.distanceKm(volunteerLat, volunteerLng, blindLat, blindLng) * 1000;
         String breachCountKey = BREACH_COUNT_KEY_PREFIX + order.getId();
         if (distanceMeters <= maxDistanceMeters) {
@@ -70,6 +76,35 @@ public class EscortSafetyService {
         try {
             emergencyService.triggerEmergency(order.getBlindUser().getId(), request, TriggerType.AI_DETECTED);
             log.warn("走散检测触发! orderId={}, 距离={}米", order.getId(), Math.round(distanceMeters));
+        } catch (RateLimitException e) {
+            // 冷却期内，EmergencyService 已经处理过一次，无需重复触发
+        }
+    }
+
+    /**
+     * 信号缺失兜底：对方（志愿者或盲人）GPS 信号缺失时也不能静默跳过走散检测，
+     * 否则志愿者只要关闭定位就能绕过走散监控。复用与 checkDistance 相同的
+     * "连续 2 次确认"防抖思路，但用独立 Redis key，避免和距离超阈值计数器互相干扰。
+     */
+    public void checkSignalMissing(RunOrder order) {
+        String missingCountKey = MISSING_COUNT_KEY_PREFIX + order.getId();
+        Long missingCount = redisTemplate.opsForValue().increment(missingCountKey);
+        redisTemplate.expire(missingCountKey, Duration.ofSeconds(MISSING_COUNT_TTL_SECONDS));
+        if (missingCount == null || missingCount < CONSECUTIVE_BREACHES_REQUIRED) {
+            log.debug("走散检测：信号缺失但未达连续确认次数 ({}/{}), orderId={}",
+                    missingCount, CONSECUTIVE_BREACHES_REQUIRED, order.getId());
+            return;
+        }
+        redisTemplate.delete(missingCountKey);
+
+        notificationService.sendEscortSignalLostAlert(order.getId(), order.getBlindUser().getId(), order.getVolunteer().getId());
+
+        EmergencyTriggerRequest request = new EmergencyTriggerRequest();
+        request.setOrderId(order.getId());
+
+        try {
+            emergencyService.triggerEmergency(order.getBlindUser().getId(), request, TriggerType.AI_DETECTED);
+            log.warn("走散检测触发（信号缺失）! orderId={}", order.getId());
         } catch (RateLimitException e) {
             // 冷却期内，EmergencyService 已经处理过一次，无需重复触发
         }
