@@ -2291,6 +2291,19 @@ components:
       type: object
       description: 订单轨迹回放：双方各一条轨迹 + 各自统计
       properties:
+        status:
+          type: string
+          description: 订单当前状态，用于区分空轨迹的含义（IN_PROGRESS 之前=陪跑未开始；IN_PROGRESS=数据采集中；终态但轨迹为空=轨迹功能上线前的历史订单，不支持回放）
+          enum:
+          - PENDING_MATCH
+          - PENDING_ACCEPT
+          - DRIVER_EN_ROUTE
+          - DRIVER_ARRIVED
+          - IN_PROGRESS
+          - COMPLETED
+          - CANCELLED
+          - REMATCHING
+          - NO_VOLUNTEER
         volunteerTrack:
           type: array
           items:

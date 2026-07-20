@@ -35,7 +35,7 @@
 |--------|-----|
 | 消息最大大小 | 64 KB |
 | 发送频率限制 | 500ms 最小间隔 |
-| 心跳超时 | 建议每 30s 发送 PING（仅盲人端支持） |
+| 心跳超时 | 建议每 30s 发送 PING（盲人端、志愿者端均支持） |
 
 ### 1.4 断线重连
 
@@ -43,6 +43,8 @@
 - 重连间隔：3 秒（建议）
 - 指数退避：3s → 6s → 12s → 最大 30s
 - 重连后重新发送位置上报
+
+> **服务端主动断连（心跳超时）**：服务端 `WebSocketHeartbeatScheduler` 每 `app.websocket.dead-connection-check-interval-ms`（默认 30000ms）检查一次，若某连接超过 `app.websocket.dead-connection-timeout-seconds`（默认 90s）未发送**任何**消息（不仅是 PING），会被服务端主动关闭，关闭码为 `SESSION_NOT_RELIABLE`。前端应将其视为普通断线，按上述重连机制处理即可，无需特殊报错处理。若客户端本身没有其他消息可发，建议按 30s 周期发送 PING（远小于 90s 阈值），可避免触发此项清理。
 
 ---
 
@@ -110,6 +112,7 @@
 ```json
 {
   "type": "APP_NOTIFICATION",
+  "messageId": "b3f1c2a0-1234-4abc-9def-0123456789ab",
   "body": "已为您匹配志愿者张三，他正在确认行程，请稍候",
   "ttsText": "已为您匹配志愿者张三，他正在确认行程，请稍候",
   "priority": "NORMAL",
@@ -119,6 +122,7 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
+| messageId | string | UUID，用于客户端去重（如断线重连后重复投递同一条消息） |
 | body | string | 通知文本（显示用） |
 | ttsText | string | TTS 朗读文本（盲人用语音播报） |
 | priority | string | `"HIGH"` 或 `"NORMAL"` |
@@ -146,6 +150,7 @@
 ```json
 {
   "type": "ORDER_STATUS_CHANGED",
+  "messageId": "c4a2d3b1-2345-4bcd-8ef0-123456789abc",
   "orderId": 123,
   "fromStatus": "IN_PROGRESS",
   "toStatus": "DRIVER_EN_ROUTE",
@@ -158,6 +163,7 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
+| messageId | string | UUID，用于客户端去重（如断线重连后重复投递同一条消息） |
 | orderId | number | 订单 ID |
 | fromStatus | string | 变更前状态 |
 | toStatus | string | 变更后状态 |
@@ -181,6 +187,7 @@ NO_VOLUNTEER（无可用志愿者）
 ```json
 {
   "type": "EMERGENCY_RESOLVED_BY_VOLUNTEER",
+  "messageId": "d5b3e4c2-3456-4cde-9f01-23456789abcd",
   "eventId": 456,
   "message": "志愿者确认这是一次误触，紧急事件已解除",
   "ttsText": "这是一次误触，紧急事件已解除",
@@ -189,11 +196,14 @@ NO_VOLUNTEER（无可用志愿者）
 }
 ```
 
+`messageId`：UUID，用于客户端去重（如断线重连后重复投递同一条消息）。
+
 #### EMERGENCY_CONTACT_NOTIFIED — 紧急联系人已通知
 
 ```json
 {
   "type": "EMERGENCY_CONTACT_NOTIFIED",
+  "messageId": "e6c4f5d3-4567-4def-a012-3456789abcde",
   "eventId": 456,
   "message": "已通过短信通知您的联系人张三，请保持冷静",
   "ttsText": "已通知你的联系人张三，请保持冷静",
@@ -201,6 +211,8 @@ NO_VOLUNTEER（无可用志愿者）
   "timestamp": "2026-05-23T14:32:00"
 }
 ```
+
+`messageId`：UUID，用于客户端去重（如断线重连后重复投递同一条消息）。
 
 #### PONG — 心跳响应
 
@@ -239,6 +251,16 @@ NO_VOLUNTEER（无可用志愿者）
 - 只有通过 WebSocket 连接的志愿者才能收到派单（NEW_ORDER）
 - 位置同时写入 Redis（30s TTL）和 MySQL
 - 建议每 5~10 秒上报一次
+
+#### PING — 心跳
+
+```json
+{
+  "type": "PING"
+}
+```
+
+服务器会立即返回 `PONG`。建议每 30 秒发送一次。
 
 ### 3.2 服务器 → 客户端
 
@@ -323,12 +345,15 @@ Content-Type: application/json
 ```json
 {
   "type": "APP_NOTIFICATION",
+  "messageId": "f7d5a6e4-5678-4ef0-b123-456789abcdef",
   "body": "您的身份证认证已通过",
   "ttsText": "您的身份证认证已通过，请继续下一步人脸验证",
   "priority": "NORMAL",
   "timestamp": "2026-05-23T10:00:00"
 }
 ```
+
+`messageId`：UUID，用于客户端去重（如断线重连后重复投递同一条消息），字段说明见盲人端 APP_NOTIFICATION。
 
 **志愿者端常见通知事件**:
 
@@ -354,6 +379,7 @@ Content-Type: application/json
 ```json
 {
   "type": "EMERGENCY_VOLUNTEER_ALERT",
+  "messageId": "a8e6b7f5-6789-4f01-c234-56789abcdef0",
   "eventId": 456,
   "orderId": 123,
   "userId": 1,
@@ -368,6 +394,7 @@ Content-Type: application/json
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
+| messageId | string | UUID，用于客户端去重（如断线重连后重复投递同一条消息） |
 | eventId | number | 紧急事件 ID |
 | orderId | number | 关联订单 ID |
 | userId | number | 盲人用户 ID |
@@ -397,12 +424,24 @@ Authorization: Bearer <token>
 ```json
 {
   "type": "EMERGENCY_RESOLVED_BY_VOLUNTEER",
+  "messageId": "b9f7c8a6-789a-4012-d345-6789abcdef01",
   "eventId": 456,
   "orderId": 123,
   "resolvedBy": "VOLUNTEER",
   "needHelp": false,
   "priority": "HIGH",
   "timestamp": "2026-05-23T14:31:00"
+}
+```
+
+`messageId`：UUID，用于客户端去重（如断线重连后重复投递同一条消息）。
+
+#### PONG — 心跳响应
+
+```json
+{
+  "type": "PONG",
+  "timestamp": 1716480000000
 }
 ```
 
@@ -428,6 +467,8 @@ Authorization: Bearer <token>
 | 方向 | type | 触发场景 | priority |
 |------|------|---------|----------|
 | 发送 | `LOCATION_UPDATE` | 定时上报位置（5~10s） | — |
+| 发送 | `PING` | 心跳（30s） | — |
+| 接收 | `PONG` | 心跳响应 | — |
 | 接收 | `BLIND_LOCATION_UPDATE` | 盲人位置实时转发 | — |
 | 接收 | `NEW_ORDER` | 串行派单推送 | HIGH |
 | 接收 | `APP_NOTIFICATION` | 模板通知 | HIGH/NORMAL |

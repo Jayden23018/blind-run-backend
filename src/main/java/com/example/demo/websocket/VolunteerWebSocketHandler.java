@@ -10,6 +10,7 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -89,24 +90,31 @@ public class VolunteerWebSocketHandler extends TextWebSocketHandler {
             return;
         }
         lastMessageTime.put(userId, now);
+        sessionRegistry.touch(userId);
 
         try {
             JsonNode json = objectMapper.readTree(message.getPayload());
             String type = json.has("type") ? json.get("type").asText() : "";
 
-            if ("LOCATION_UPDATE".equals(type)) {
-                Double lat = json.has("lat") ? json.get("lat").asDouble() : null;
-                Double lng = json.has("lng") ? json.get("lng").asDouble() : null;
+            switch (type) {
+                case "LOCATION_UPDATE" -> {
+                    Double lat = json.has("lat") ? json.get("lat").asDouble() : null;
+                    Double lng = json.has("lng") ? json.get("lng").asDouble() : null;
 
-                if (lat == null || lng == null) {
-                    log.warn("志愿者 {} 位置消息缺少 lat/lng 字段", userId);
-                    return;
+                    if (lat == null || lng == null) {
+                        log.warn("志愿者 {} 位置消息缺少 lat/lng 字段", userId);
+                        return;
+                    }
+
+                    volunteerLocationService.updateLocation(userId, lat, lng, true);
+                    log.debug("志愿者 {} WebSocket 位置上报: lat={}, lng={}", userId, lat, lng);
                 }
-
-                volunteerLocationService.updateLocation(userId, lat, lng, true);
-                log.debug("志愿者 {} WebSocket 位置上报: lat={}, lng={}", userId, lat, lng);
-            } else {
-                log.warn("志愿者 {} 发送未知消息类型: {}", userId, type);
+                case "PING" -> {
+                    String pong = objectMapper.writeValueAsString(
+                            Map.of("type", "PONG", "timestamp", System.currentTimeMillis()));
+                    session.sendMessage(new TextMessage(pong));
+                }
+                default -> log.warn("志愿者 {} 发送未知消息类型: {}", userId, type);
             }
         } catch (Exception e) {
             log.error("志愿者 {} WebSocket 消息解析失败: {}", userId, e.getMessage());

@@ -84,6 +84,7 @@ public class BlindWebSocketHandler extends TextWebSocketHandler {
             return;
         }
         lastMessageTime.put(userId, now);
+        sessionRegistry.touch(userId);
 
         try {
             JsonNode json = objectMapper.readTree(message.getPayload());

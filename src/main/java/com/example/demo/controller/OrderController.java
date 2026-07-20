@@ -188,10 +188,11 @@ public class OrderController {
     @GetMapping("/{id}/track")
     public ResponseEntity<OrderTrackResponse> getOrderTrack(@PathVariable @Min(1) Long id) {
         Long userId = SecurityUtils.getCurrentUserId();
-        // 仅用于权限校验副作用：非参与者会在此抛 OrderPermissionException/OrderNotFoundException，返回值本身不需要
-        orderQueryService.getOrder(id, userId);
+        // 非参与者会在此抛 OrderPermissionException/OrderNotFoundException；返回值的 status 用于响应区分场景
+        RunOrder order = orderQueryService.getOrder(id, userId);
 
         OrderTrackResponse response = new OrderTrackResponse(
+                order.getStatus(),
                 trackService.getTrack(id, UserRole.VOLUNTEER),
                 trackService.getStats(id, UserRole.VOLUNTEER),
                 trackService.getTrack(id, UserRole.BLIND),

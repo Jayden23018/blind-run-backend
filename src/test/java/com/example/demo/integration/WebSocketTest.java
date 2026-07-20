@@ -1,9 +1,11 @@
 package com.example.demo.integration;
 
+import com.example.demo.websocket.UnifiedSessionRegistry;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
@@ -25,6 +27,9 @@ import static org.assertj.core.api.Assertions.*;
  * CopyOnWriteArrayList + CountDownLatch 捕获异步推送消息。
  */
 class WebSocketTest extends BaseIntegrationTest {
+
+    @Autowired
+    private UnifiedSessionRegistry sessionRegistry;
 
     /** 记录需要清理的 WebSocket 会话 */
     private final List<WebSocketSession> activeSessions = new CopyOnWriteArrayList<>();
@@ -247,5 +252,50 @@ class WebSocketTest extends BaseIntegrationTest {
         }).doesNotThrowAnyException();
 
         System.out.println("✅ TC-WS-06 passed — 断连清理");
+    }
+
+    // ==================== 心跳 ====================
+
+    /** TC-WS-07：PING/PONG 心跳 */
+    @Test
+    @DisplayName("TC-WS-07: PING/PONG 心跳")
+    void tc07_pingPongHeartbeat() throws Exception {
+        String volToken = testHelper.registerAndLoginWithRole("13800115001", "VOLUNTEER");
+        CopyOnWriteArrayList<String> messages = new CopyOnWriteArrayList<>();
+        CountDownLatch messageLatch = new CountDownLatch(1);
+
+        WebSocketSession session = connectWithMessageCapture(volToken, messages, messageLatch);
+
+        session.sendMessage(new TextMessage("{\"type\":\"PING\"}"));
+
+        boolean received = messageLatch.await(5, TimeUnit.SECONDS);
+        assertThat(received)
+                .as("应在 5 秒内收到 PONG 回复")
+                .isTrue();
+
+        JsonNode pong = testHelper.extractJson(messages.get(0));
+        assertThat(pong.get("type").asText()).isEqualTo("PONG");
+        assertThat(pong.has("timestamp")).isTrue();
+
+        System.out.println("✅ TC-WS-07 passed — PING/PONG 心跳");
+    }
+
+    /** TC-WS-08：服务端死连接检测 —— 直接调用 closeStaleSessions，不依赖真实调度定时器，避免受配置的超时时长影响其它用例 */
+    @Test
+    @DisplayName("TC-WS-08: 服务端死连接检测")
+    void tc08_deadConnectionDetection() throws Exception {
+        String volToken = testHelper.registerAndLoginWithRole("13800115002", "VOLUNTEER");
+        WebSocketSession session = connectWs(volToken);
+        assertThat(session.isOpen()).isTrue();
+
+        // timeoutMs=0：任意已注册连接立即视为"无活跃"，验证 closeStaleSessions 会关闭它
+        sessionRegistry.closeStaleSessions(0);
+
+        Thread.sleep(500);
+        assertThat(session.isOpen())
+                .as("超过死连接阈值未活跃的 session 应被服务端主动关闭")
+                .isFalse();
+
+        System.out.println("✅ TC-WS-08 passed — 服务端死连接检测");
     }
 }

@@ -87,6 +87,13 @@
   - 盲人 `verifyIdentity`（`Id2MetaVerify` 二要素）**不变**。
   - 新增 17 个单元测试（`TestFaceVerifyServiceImplTest` certifyId 协议 5 个 + `VolunteerRegistrationServiceTest` 状态机/越权/迁移/幂等 12 个），全量回归通过。
 
+- **WebSocket 消息新增 `messageId`（离散告警去重）+ 服务端主动断连（心跳超时清理）**：
+  - **所有 `NOTIFICATION` 类消息（`APP_NOTIFICATION`/`ORDER_STATUS_CHANGED`/`EMERGENCY_VOLUNTEER_ALERT`/`EMERGENCY_RESOLVED_BY_VOLUNTEER`/`EMERGENCY_CONTACT_NOTIFIED`/`ESCORT_DISTANCE_ALERT`/`ESCORT_SIGNAL_LOST` 等）新增 `messageId`（UUID 字符串）字段**，前端可用它去重同一条消息的重复投递（如断线重连后的重发）。`NEW_ORDER`/`PONG`/位置更新类消息（`VOLUNTEER_LOCATION_UPDATE`/`BLIND_LOCATION_UPDATE`）**不受影响**，这些是覆盖式最新值，语义上不需要去重。
+  - ⚠️ **服务端可能主动断开空闲连接**：若某条 WS 连接超过 `app.websocket.dead-connection-timeout-seconds`（默认 90 秒）未发送**任何**消息（不限于 PING），服务端会主动关闭该连接（关闭码 `SESSION_NOT_RELIABLE`）。前端按已有的断线重连机制处理即可，**无需**当作错误特殊处理；若客户端本身长时间没有其他消息可发，建议按 30 秒左右周期发 PING 保活。
+  - 详见 [`docs/websocket-protocol.md`](websocket-protocol.md) 1.4 节 + 各消息示例。
+
+- **`GET /api/orders/{id}/track` 响应新增 `status` 字段**：返回订单当前状态（`OrderStatus` 枚举值），用于区分空/短轨迹的三种场景——① `PENDING_MATCH`~`DRIVER_ARRIVED` 阶段空轨迹是正常的（陪跑还没开始）；② `IN_PROGRESS` 阶段空/短轨迹是"采集中，数据不足"；③ 终态（`COMPLETED`/`CANCELLED` 等）+ 空轨迹且订单较早创建，则是"历史订单不支持轨迹功能"。前端无需再自行猜测或额外请求订单详情来做这个判断。
+
 ### 明确不做
 
 - **积分系统（`pointsBalance`/`pointsDelta`）**：项目当前无积分系统，`dispatch-summary` 与 `recentOrders` 均**不返回**积分字段。前端首页暂不展示积分，待产品定义积分规则后单独评估。

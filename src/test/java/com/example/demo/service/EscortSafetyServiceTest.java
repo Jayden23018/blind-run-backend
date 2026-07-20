@@ -32,6 +32,20 @@ class EscortSafetyServiceTest {
     void setUp() {
         escortSafetyService = new EscortSafetyService(emergencyService, notificationService, redisTemplate);
         ReflectionTestUtils.setField(escortSafetyService, "maxDistanceMeters", 100.0);
+        ReflectionTestUtils.setField(escortSafetyService, "consecutiveBreachesRequired", 2);
+    }
+
+    @Test
+    void checkDistance_consecutiveBreachesRequiredIsConfigurable() {
+        // 把连续确认次数配成 1：单次超阈值即应触发，验证阈值真的走配置而非硬编码
+        ReflectionTestUtils.setField(escortSafetyService, "consecutiveBreachesRequired", 1);
+        when(redisTemplate.opsForValue()).thenReturn(valueOps);
+        when(valueOps.increment("escort:breach:1")).thenReturn(1L);
+
+        escortSafetyService.checkDistance(order(), 31.23, 121.47, 31.24, 121.47);
+
+        verify(emergencyService).triggerEmergency(eq(100L), any(), eq(TriggerType.AI_DETECTED));
+        verify(notificationService).sendEscortDistanceAlert(1L, 100L, 200L);
     }
 
     private RunOrder order() {

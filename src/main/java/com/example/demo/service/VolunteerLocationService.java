@@ -10,6 +10,7 @@ import com.example.demo.repository.RunOrderRepository;
 import com.example.demo.repository.UserRepository;
 import com.example.demo.repository.VolunteerLocationRepository;
 import com.example.demo.repository.VolunteerProfileRepository;
+import com.example.demo.util.GeoUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -134,9 +135,7 @@ public class VolunteerLocationService {
      * @param isOnline  是否在线
      */
     public void updateLocation(Long userId, Double latitude, Double longitude, Boolean isOnline) {
-        if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
-            throw new IllegalArgumentException("坐标范围不合法：纬度 -90~90，经度 -180~180");
-        }
+        GeoUtils.validateCoordinates(latitude, longitude);
 
         // 1. 更新数据库（UPSERT 逻辑）
         VolunteerLocation location = locationRepository.findByVolunteerId(userId)

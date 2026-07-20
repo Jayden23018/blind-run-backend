@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 通知服务 —— 统一管理 WebSocket 推送、短信、App Push
@@ -347,10 +348,11 @@ public class NotificationService {
 
     // === 私有方法 ===
 
-    /** 构建消息信封：预填 type 和 ISO-8601 timestamp */
+    /** 构建消息信封：预填 type、去重用 messageId 和 ISO-8601 timestamp */
     private Map<String, Object> buildEnvelope(String type) {
         Map<String, Object> msg = new LinkedHashMap<>();
         msg.put("type", type);
+        msg.put("messageId", UUID.randomUUID().toString());
         msg.put("timestamp", LocalDateTime.now().toString());
         return msg;
     }

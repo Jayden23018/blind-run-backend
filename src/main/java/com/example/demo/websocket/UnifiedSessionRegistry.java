@@ -6,6 +6,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 
+import org.springframework.web.socket.CloseStatus;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -27,6 +29,7 @@ public class UnifiedSessionRegistry {
 
     private final ConcurrentHashMap<Long, WebSocketSession> userSessions = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, WebSocketSession> csSessions = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, Long> lastActivityTime = new ConcurrentHashMap<>();
 
     // @Lazy：WebSocketMessageBroker 也依赖本类，@Lazy 延迟注入打破循环依赖
     private final WebSocketMessageBroker messageBroker;
@@ -45,6 +48,7 @@ public class UnifiedSessionRegistry {
         if ("CS".equals(role)) {
             csSessions.put(userId, session);
         }
+        lastActivityTime.put(userId, System.currentTimeMillis());
         log.info("用户 {} (role={}) WebSocket 已连接，本机在线: {}", userId, role, userSessions.size());
     }
 
@@ -55,11 +59,39 @@ public class UnifiedSessionRegistry {
     public void unregister(Long userId) {
         userSessions.remove(userId);
         csSessions.remove(userId);
+        lastActivityTime.remove(userId);
         log.info("用户 {} WebSocket 已断开，本机在线: {}", userId, userSessions.size());
     }
 
     public Optional<WebSocketSession> getSession(Long userId) {
         return Optional.ofNullable(userSessions.get(userId));
+    }
+
+    /** 更新用户最后活跃时间，收到任意合法消息（不限于心跳）即算存活信号 */
+    public void touch(Long userId) {
+        lastActivityTime.put(userId, System.currentTimeMillis());
+    }
+
+    /**
+     * 关闭超过 timeoutMs 未活跃的本机 session（网络异常中断、无正常 FIN/CLOSE 的死连接）
+     *
+     * 不在此处手动 unregister —— session.close() 会触发 WS 处理器已有的
+     * afterConnectionClosed 回调，由它完成注册表清理 + 角色相关清理（位置下线等），避免重复逻辑。
+     */
+    public void closeStaleSessions(long timeoutMs) {
+        long now = System.currentTimeMillis();
+        for (var entry : userSessions.entrySet()) {
+            Long userId = entry.getKey();
+            Long last = lastActivityTime.get(userId);
+            if (last == null || now - last >= timeoutMs) {
+                try {
+                    entry.getValue().close(CloseStatus.SESSION_NOT_RELIABLE);
+                    log.info("用户 {} WebSocket 超过 {}ms 无活跃，服务端主动关闭", userId, timeoutMs);
+                } catch (IOException e) {
+                    log.warn("关闭用户 {} 死连接失败: {}", userId, e.getMessage());
+                }
+            }
+        }
     }
 
     /**

@@ -48,4 +48,19 @@ class OrderTrackTest extends BaseIntegrationTest {
 
         System.out.println("✅ OrderTrackTest passed — 陪跑进行中位置上报后可查到双方轨迹点");
     }
+
+    /** /track 响应携带订单当前状态，供前端区分"未到陪跑阶段"/"进行中数据不足"/"历史订单不支持" */
+    @Test
+    @DisplayName("track响应包含订单状态字段")
+    void trackResponse_includesOrderStatus() throws Exception {
+        TestHelper.FlowResult flow = testHelper.setupOrderInProgress("13800080021", "13800080022");
+
+        ResponseEntity<String> response = testHelper.getOrderTrack(flow.blindToken(), flow.orderId());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode json = testHelper.extractJson(response.getBody());
+        assertThat(json.get("status").asText()).isEqualTo("IN_PROGRESS");
+
+        System.out.println("✅ OrderTrackTest passed — track响应包含订单状态字段");
+    }
 }

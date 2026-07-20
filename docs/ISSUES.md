@@ -432,6 +432,13 @@
 
 ## 🟡 待处理 — P2（增强/优化）
 
+### [P2] S18 · 走散检测阈值/连续确认次数缺乏产品书面依据 — `2026-07-20` 【⚠️ 待核实】
+
+- **问题**：`EscortSafetyService` 的走散判定距离阈值（`app.escort.max-distance-meters`，默认 100 米）和连续确认次数（`app.escort.consecutive-breaches-required`，默认 2 次）都是工程经验值，未经产品/业务方书面确认是否符合实际陪跑场景（不同配速、城市峡谷 GPS 漂移幅度等）。
+- **方案**：已把两个值从硬编码改为 `@Value` 可配置项，产品确认正式依据后运维改配置即可生效，无需重新发版。`checkDistance()` 触发前的 `log.warn` 已打印本次确认所用的 `breachCount`/`maxDistanceMeters`，方便日后从日志复核阈值是否偏保守/偏宽松。
+- **涉及**：`EscortSafetyService.java`, `application.properties`
+- **待办**：产品/业务方给出正式阈值依据后，更新此条目状态为已解决。
+
 ### [P2] T2 · API 文档缺口：`PacePreference` 枚举值未列举 — `2026-06-20` 【已确证】
 
 - **问题**：`PUT /api/blind/profile` 的 `defaultPace` 字段接受 `PacePreference` 枚举，但 API 文档未列出合法值。生产冒烟测试发送 `"SLOW"` 导致 400（`SLOW` 不是合法值）。

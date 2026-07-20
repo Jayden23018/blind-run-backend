@@ -46,4 +46,18 @@ public class GeoUtils {
 
         return EARTH_RADIUS_KM * c;
     }
+
+    /**
+     * 校验坐标范围是否合法
+     *
+     * 本系统 lat/lng 统一约定为 GCJ-02 坐标系（见 CLAUDE.md 坐标系约定）。
+     * 本方法只做数值范围校验，不做/不能做坐标系鉴别（GCJ-02 与 WGS-84 数值范围一致，无法从数值本身区分）。
+     * 接入新数据源（原生 GPS SDK、海外定位等可能给 WGS-84 坐标的来源）时，必须在调用本方法之前
+     * 把坐标转换为 GCJ-02——这是当前代码里离坐标入口最近的统一校验点，未来接入新坐标源时应先看这里。
+     */
+    public static void validateCoordinates(double lat, double lng) {
+        if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+            throw new IllegalArgumentException("坐标范围不合法：纬度 -90~90，经度 -180~180");
+        }
+    }
 }

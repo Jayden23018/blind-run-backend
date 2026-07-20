@@ -374,6 +374,7 @@ Authorization: Bearer <token>
 **响应（`OrderTrackResponse`）**:
 ```json
 {
+  "status": "COMPLETED",
   "volunteerTrack": [
     { "lat": 39.9042, "lng": 116.4074, "recordedAt": "2026-04-20T14:05:00" },
     { "lat": 39.9045, "lng": 116.4078, "recordedAt": "2026-04-20T14:05:10" }
@@ -388,6 +389,7 @@ Authorization: Bearer <token>
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
+| status | string | 订单当前状态（`OrderStatus` 枚举），用于区分空轨迹的含义（见下方说明） |
 | volunteerTrack / blindTrack | array | 各自的轨迹点列表，按时间升序；覆盖整个订单 `IN_PROGRESS` 阶段，约每 10 秒抽稀一个点（并非每次原始 GPS 上报都入库） |
 | volunteerTrack[].lat / lng | number | 纬度 / 经度 |
 | volunteerTrack[].recordedAt | string | 记录时间（ISO 格式） |
@@ -397,6 +399,11 @@ Authorization: Bearer <token>
 | xxxStats.avgPaceSecPerKm | number \| null | 平均配速（秒/公里）；该角色轨迹点少于 2 个时为 `null`（对应统计字段也全为 0） |
 
 > **抽稀间隔可配**: `app.track.sample-interval-seconds`（默认 10 秒）
+
+> **如何解读空/短轨迹**（结合 `status` 判断）：
+> - `status` 为 `IN_PROGRESS` 之前的状态（`PENDING_MATCH`/`PENDING_ACCEPT`/`DRIVER_EN_ROUTE`/`DRIVER_ARRIVED`）且轨迹为空 —— 陪跑尚未开始，正常现象；
+> - `status` 为 `IN_PROGRESS` 且轨迹为空或很短 —— 陪跑刚开始，数据还在采集中；
+> - `status` 为终态（`COMPLETED`/`CANCELLED`/`REMATCHING`/`NO_VOLUNTEER` 等）但轨迹为空 —— 该订单是轨迹功能上线前的历史订单，不支持轨迹回放。
 
 ### 3.8 紧急求助
 

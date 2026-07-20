@@ -24,7 +24,6 @@ import java.time.Duration;
 @Service
 public class EscortSafetyService {
 
-    private static final int CONSECUTIVE_BREACHES_REQUIRED = 2;
     private static final String BREACH_COUNT_KEY_PREFIX = "escort:breach:";
     private static final long BREACH_COUNT_TTL_SECONDS = 60;
 
@@ -37,6 +36,10 @@ public class EscortSafetyService {
 
     @Value("${app.escort.max-distance-meters:100}")
     private double maxDistanceMeters;
+
+    // ponytail: 阈值/连续确认次数目前是工程经验值，未经产品书面确认——见 docs/ISSUES.md
+    @Value("${app.escort.consecutive-breaches-required:2}")
+    private int consecutiveBreachesRequired;
 
     public EscortSafetyService(EmergencyService emergencyService, NotificationService notificationService,
                                 StringRedisTemplate redisTemplate) {
@@ -59,9 +62,9 @@ public class EscortSafetyService {
 
         Long breachCount = redisTemplate.opsForValue().increment(breachCountKey);
         redisTemplate.expire(breachCountKey, Duration.ofSeconds(BREACH_COUNT_TTL_SECONDS));
-        if (breachCount == null || breachCount < CONSECUTIVE_BREACHES_REQUIRED) {
+        if (breachCount == null || breachCount < consecutiveBreachesRequired) {
             log.debug("走散检测：距离超阈值但未达连续确认次数 ({}/{}), orderId={}",
-                    breachCount, CONSECUTIVE_BREACHES_REQUIRED, order.getId());
+                    breachCount, consecutiveBreachesRequired, order.getId());
             return;
         }
         redisTemplate.delete(breachCountKey);
@@ -75,7 +78,8 @@ public class EscortSafetyService {
 
         try {
             emergencyService.triggerEmergency(order.getBlindUser().getId(), request, TriggerType.AI_DETECTED);
-            log.warn("走散检测触发! orderId={}, 距离={}米", order.getId(), Math.round(distanceMeters));
+            log.warn("走散检测触发! orderId={}, 距离={}米, 阈值={}米, 连续确认次数={}",
+                    order.getId(), Math.round(distanceMeters), maxDistanceMeters, breachCount);
         } catch (RateLimitException e) {
             // 冷却期内，EmergencyService 已经处理过一次，无需重复触发
         }
@@ -90,9 +94,9 @@ public class EscortSafetyService {
         String missingCountKey = MISSING_COUNT_KEY_PREFIX + order.getId();
         Long missingCount = redisTemplate.opsForValue().increment(missingCountKey);
         redisTemplate.expire(missingCountKey, Duration.ofSeconds(MISSING_COUNT_TTL_SECONDS));
-        if (missingCount == null || missingCount < CONSECUTIVE_BREACHES_REQUIRED) {
+        if (missingCount == null || missingCount < consecutiveBreachesRequired) {
             log.debug("走散检测：信号缺失但未达连续确认次数 ({}/{}), orderId={}",
-                    missingCount, CONSECUTIVE_BREACHES_REQUIRED, order.getId());
+                    missingCount, consecutiveBreachesRequired, order.getId());
             return;
         }
         redisTemplate.delete(missingCountKey);
