@@ -77,6 +77,7 @@ public class NotificationService {
             }
 
             Map<String, Object> msg = buildEnvelope("APP_NOTIFICATION");
+            msg.put("eventType", eventType);
             msg.put("body", text);
             msg.put("ttsText", ttsText);
             msg.put("priority", template.getPriority().name());
@@ -186,6 +187,38 @@ public class NotificationService {
             logNotification(orderId, volunteerId, NotificationChannel.WEBSOCKET, "信号缺失告警");
         } catch (Exception e) {
             log.error("发送信号缺失告警失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 订单状态变更 —— 向盲人 + 志愿者双发结构化 WS 消息（type=ORDER_STATUS_CHANGED）。
+     * 区别于 sendNotification（模板通知，供 TTS/文案展示）：本方法不依赖模板，
+     * 固定结构 {type, messageId, timestamp, orderId, fromStatus, toStatus, message, ttsText, priority}，
+     * 供前端订单状态机驱动。messageId/timestamp 复用 buildEnvelope。
+     * 不走模板是为了规避生产 data.sql 不跑 / ddl-auto=validate 下模板缺失导致静默 return null 的陷阱。
+     */
+    public void sendOrderStatusChanged(Long orderId, Long blindUserId, Long volunteerId,
+                                       String fromStatus, String toStatus,
+                                       String message, String ttsText) {
+        try {
+            Map<String, Object> msg = buildEnvelope("ORDER_STATUS_CHANGED");
+            msg.put("orderId", orderId);
+            msg.put("fromStatus", fromStatus);
+            msg.put("toStatus", toStatus);
+            msg.put("message", message);
+            msg.put("ttsText", ttsText);
+            msg.put("priority", NotificationPriority.NORMAL.name());
+            String payload = objectMapper.writeValueAsString(msg);
+
+            sessionRegistry.sendToUser(blindUserId, payload);
+            logNotification(orderId, blindUserId, NotificationChannel.WEBSOCKET, message);
+            if (volunteerId != null) {
+                sessionRegistry.sendToUser(volunteerId, payload);
+                logNotification(orderId, volunteerId, NotificationChannel.WEBSOCKET, message);
+            }
+        } catch (Exception e) {
+            log.error("发送订单状态变更通知失败: orderId={}, toStatus={}, error={}",
+                    orderId, toStatus, e.getMessage());
         }
     }
 

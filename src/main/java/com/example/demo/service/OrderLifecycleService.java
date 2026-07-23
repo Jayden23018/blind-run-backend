@@ -122,7 +122,8 @@ public class OrderLifecycleService {
         runOrderRepository.save(order);
 
         statusLogService.logStatusChange(orderId, oldStatus, "DRIVER_EN_ROUTE", volunteerId, "志愿者已出发");
-        notifyBlindUser(order.getBlindUser().getId(), "DRIVER_EN_ROUTE", volunteerId);
+        notifyStatusChanged(order, oldStatus, "DRIVER_EN_ROUTE", "DRIVER_EN_ROUTE", volunteerId,
+                "志愿者已出发", "志愿者已出发，正在赶往您的位置");
 
         log.info("志愿者 {} 已出发，订单ID={}", volunteerId, orderId);
     }
@@ -144,7 +145,8 @@ public class OrderLifecycleService {
         runOrderRepository.save(order);
 
         statusLogService.logStatusChange(orderId, oldStatus, "DRIVER_ARRIVED", volunteerId, "志愿者已到达");
-        notifyBlindUser(order.getBlindUser().getId(), "DRIVER_ARRIVED", volunteerId);
+        notifyStatusChanged(order, oldStatus, "DRIVER_ARRIVED", "DRIVER_ARRIVED", volunteerId,
+                "志愿者已到达", "志愿者已到达，请准备出发");
 
         log.info("志愿者 {} 已到达，订单ID={}", volunteerId, orderId);
     }
@@ -166,7 +168,8 @@ public class OrderLifecycleService {
         runOrderRepository.save(order);
 
         statusLogService.logStatusChange(orderId, oldStatus, "IN_PROGRESS", volunteerId, "志愿者确认开始服务");
-        notifyBlindUser(order.getBlindUser().getId(), "SERVICE_STARTED", volunteerId);
+        notifyStatusChanged(order, oldStatus, "IN_PROGRESS", "SERVICE_STARTED", volunteerId,
+                "陪跑已开始", "陪跑服务已开始");
 
         log.info("志愿者 {} 确认开始服务，订单ID={}", volunteerId, orderId);
     }
@@ -193,7 +196,8 @@ public class OrderLifecycleService {
 
         proximityService.clearProximityFlag(orderId);
         statusLogService.logStatusChange(orderId, oldStatus, "COMPLETED", volunteerId, "服务完成");
-        notificationService.sendNotification(order.getBlindUser().getId(), "ORDER_COMPLETED", TargetRole.BLIND_USER, null);
+        notifyStatusChanged(order, oldStatus, "COMPLETED", "ORDER_COMPLETED", volunteerId,
+                "订单已完成", "陪跑服务已结束，感谢使用");
 
         log.info("志愿者 {} 结束了订单 {}，订单完成", volunteerId, orderId);
     }
@@ -394,5 +398,21 @@ public class OrderLifecycleService {
         Map<String, String> params = new HashMap<>();
         params.put("volunteerName", getVolunteerName(volunteerId));
         notificationService.sendNotification(blindUserId, eventType, TargetRole.BLIND_USER, params);
+    }
+
+    /**
+     * 状态变更通知双通道：① 模板 APP_NOTIFICATION（TTS 语音 + 文案，仅盲人，沿用现有）
+     * ② 结构化 ORDER_STATUS_CHANGED（盲人 + 志愿者，供前端订单状态机驱动）。
+     * 其中 ② 是对 docs/websocket-protocol.md 约定的补齐——此前后端从未发送该 type。
+     */
+    private void notifyStatusChanged(RunOrder order, String oldStatus, String newStatus,
+                                     String blindEventType, Long volunteerId,
+                                     String message, String ttsText) {
+        notifyBlindUser(order.getBlindUser().getId(), blindEventType, volunteerId);
+        notificationService.sendOrderStatusChanged(
+                order.getId(),
+                order.getBlindUser().getId(),
+                order.getVolunteer() != null ? order.getVolunteer().getId() : null,
+                oldStatus, newStatus, message, ttsText);
     }
 }

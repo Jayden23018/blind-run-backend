@@ -1,5 +1,17 @@
 # 变更日志
 
+## [1.5.3] - 2026-07-23
+
+### 缺陷修复 — 订单状态变更 WebSocket 推送
+
+- **补齐 `ORDER_STATUS_CHANGED` 双端推送**：此前 `docs/websocket-protocol.md` 约定了该消息但后端从未实现——订单状态推进（志愿者出发 `DRIVER_EN_ROUTE` / 到达 `DRIVER_ARRIVED` / 开始服务 `IN_PROGRESS` / 完成 `COMPLETED`）时，盲人和志愿者 WebSocket 都收不到结构化状态变更事件（前端只能靠轮询 HTTP）。
+- **修复后**：每次状态推进，盲人与志愿者**各自收到一条** `ORDER_STATUS_CHANGED`：
+  ```json
+  {"type":"ORDER_STATUS_CHANGED","messageId":"...","timestamp":"...","orderId":123,"fromStatus":"PENDING_ACCEPT","toStatus":"DRIVER_EN_ROUTE","message":"志愿者已出发","ttsText":"志愿者已出发，正在赶往您的位置","priority":"NORMAL"}
+  ```
+- ⚠️ **前端对齐**：前端应按 `msg.type === "ORDER_STATUS_CHANGED"` 监听并驱动订单状态机；消息内的 `messageId`（UUID）可用于断线重连去重。现有 `APP_NOTIFICATION` 模板通知（含 TTS 语音播报）保持不变，不冲突。
+- **部署**：无数据库迁移，重启即生效。
+
 ## [1.5.2] - 2026-07-19
 
 ### 缺陷修复 — 紧急事件 GPS/PII 安全整改

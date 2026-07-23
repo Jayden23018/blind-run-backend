@@ -390,7 +390,7 @@ Authorization: Bearer <token>
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | status | string | 订单当前状态（`OrderStatus` 枚举），用于区分空轨迹的含义（见下方说明） |
-| volunteerTrack / blindTrack | array | 各自的轨迹点列表，按时间升序；覆盖整个订单 `IN_PROGRESS` 阶段，约每 10 秒抽稀一个点（并非每次原始 GPS 上报都入库） |
+| volunteerTrack / blindTrack | array | 各自的轨迹点列表，按时间升序；覆盖整个订单 `IN_PROGRESS` 阶段，约每 10 秒抽稀一个点（并非每次原始 GPS 上报都入库）。**不按点数过滤**——可能为 0、1 或多个点，客户端需自行决定少于 2 点时是否绘制（后端不会返回 `[]` 顶替单点数组） |
 | volunteerTrack[].lat / lng | number | 纬度 / 经度 |
 | volunteerTrack[].recordedAt | string | 记录时间（ISO 格式） |
 | volunteerStats / blindStats | object | 各自的统计数据 |
@@ -509,17 +509,38 @@ ws.onclose = () => {
 ```
 
 #### 通用通知
+
+基于后端模板推送的通知消息，`type` 固定为 `APP_NOTIFICATION`（不是 `NOTIFICATION`，不带 `data` 包装，字段都在顶层）：
 ```json
 {
-  "type": "NOTIFICATION",
-  "data": {
-    "eventType": "ORDER_ACCEPTED",
-    "message": "志愿者张三已接单",
-    "ttsText": "志愿者张三已接单，请注意接听",
-    "priority": "HIGH"
-  }
+  "type": "APP_NOTIFICATION",
+  "messageId": "b3f1c2a0-1234-4abc-9def-0123456789ab",
+  "timestamp": "2026-05-23T14:05:00",
+  "eventType": "ORDER_ACCEPTED",
+  "body": "志愿者张三已接单，请注意接听",
+  "ttsText": "志愿者张三已接单，请注意接听",
+  "priority": "HIGH"
 }
 ```
+> **`eventType`（对应模板 `event_type`，如 `ORDER_ACCEPTED`）现在会出现在推送体里**（2026-07-21 起），客户端应优先用它做机器可读的事件识别，不要依赖 `body`/`ttsText` 文案匹配（文案可被客服后台管理界面修改）。`orderId` 仍不提供。详见 `docs/websocket-protocol.md` 的 `APP_NOTIFICATION` 章节。
+
+#### 订单状态变更（`ORDER_STATUS_CHANGED`，盲人 + 志愿者双发）
+
+订单状态推进时（志愿者出发 `DRIVER_EN_ROUTE` / 到达 `DRIVER_ARRIVED` / 开始服务 `IN_PROGRESS` / 完成 `COMPLETED`），盲人与志愿者**各自收到一条**结构化状态消息，前端应据 `msg.type === "ORDER_STATUS_CHANGED"` 驱动订单状态机（不要靠轮询 HTTP，也不要把状态变更与上面的 `APP_NOTIFICATION` 模板通知混为一谈——后者是 TTS 语音/文案，本消息是结构化状态）：
+```json
+{
+  "type": "ORDER_STATUS_CHANGED",
+  "messageId": "c4a2d3b1-2345-4bcd-8ef0-123456789abc",
+  "timestamp": "2026-07-23T14:10:00",
+  "orderId": 123,
+  "fromStatus": "PENDING_ACCEPT",
+  "toStatus": "DRIVER_EN_ROUTE",
+  "message": "志愿者已出发",
+  "ttsText": "志愿者已出发，正在赶往您的位置",
+  "priority": "NORMAL"
+}
+```
+> **`messageId`（UUID）** 可用于断线重连后对同一条状态变更去重。字段集与 `docs/websocket-protocol.md` 的 `ORDER_STATUS_CHANGED` 章节一致（2026-07-23 起后端实际下发）。
 
 #### 紧急求助警报（推送给客服，`sendToCs`）
 
@@ -552,19 +573,34 @@ ws.onclose = () => {
 > **推送时机**: 订单状态为 `DRIVER_EN_ROUTE`（志愿者出发）、`DRIVER_ARRIVED`（志愿者到达）或 `IN_PROGRESS`（陪跑进行中）时，每次盲人上报位置都会自动推送给对应志愿者；与盲人端接收的 `VOLUNTEER_LOCATION_UPDATE`（见 4.4）方向相反、格式相同，`IN_PROGRESS` 阶段用于陪跑中双方实时同步位置（详见 4.4 中的对称说明）。
 
 #### 走散告警
-`IN_PROGRESS`（陪跑中）阶段，若双方实时 GPS 距离超过阈值（默认 100 米，`app.escort.max-distance-meters` 可配），双方各自收到一条走散提醒（`eventType: ESCORT_DISTANCE_ALERT`，仍走上方"通用通知"消息格式，`type` 字段为 `NOTIFICATION`/`APP_NOTIFICATION`）：
+`IN_PROGRESS`（陪跑中）阶段，若双方实时 GPS 距离超过阈值（默认 100 米，`app.escort.max-distance-meters` 可配，连续 2 次采样超阈值才真正触发，避免单次 GPS 跳变误报），双方各自收到一条 `APP_NOTIFICATION`（`eventType: ESCORT_DISTANCE_ALERT`，格式见上方"通用通知"）：
 ```json
 {
-  "type": "NOTIFICATION",
-  "data": {
-    "eventType": "ESCORT_DISTANCE_ALERT",
-    "message": "与盲人用户的距离似乎有点远",
-    "ttsText": "你和盲人用户的距离似乎有点远，请尽快确认对方位置",
-    "priority": "HIGH"
-  }
+  "type": "APP_NOTIFICATION",
+  "messageId": "b3f1c2a0-1234-4abc-9def-0123456789ab",
+  "timestamp": "2026-07-21T14:05:00",
+  "eventType": "ESCORT_DISTANCE_ALERT",
+  "body": "与盲人用户的距离似乎有点远",
+  "ttsText": "你和盲人用户的距离似乎有点远，请尽快确认对方位置",
+  "priority": "HIGH"
 }
 ```
 > 盲人端收到的文案对应为「与志愿者的距离似乎有点远」/「你和志愿者的距离似乎有点远，请留在原地，志愿者正在确认位置」。同一次距离越界会**并行**触发既有紧急升级流程（`triggerType: AI_DETECTED`）通知客服介入，二者互不替代：走散告警是双端的即时轻量提醒，紧急升级是走向客服的分级处理。
+
+#### 信号缺失告警
+`IN_PROGRESS` 阶段，若连续 2 次采样都读不到对方位置（Redis 位置缓存 TTL 30 秒过期，对方断线/关闭定位），触发兜底告警（`eventType: ESCORT_SIGNAL_LOST`），格式与走散告警相同，仅文案不同：
+```json
+{
+  "type": "APP_NOTIFICATION",
+  "messageId": "c4a2d3b1-2345-4bcd-8ef0-123456789abc",
+  "timestamp": "2026-07-21T14:06:00",
+  "eventType": "ESCORT_SIGNAL_LOST",
+  "body": "暂时无法获取对方位置，正在为你确认安全",
+  "ttsText": "暂时无法获取志愿者位置，请留在原地，我们正在为你确认安全",
+  "priority": "HIGH"
+}
+```
+> 志愿者端收到的 ttsText 对应为「暂时无法获取盲人用户位置，请尽快确认对方安全」。与走散告警同样会**并行**触发紧急升级流程（`triggerType: AI_DETECTED`，本情形不带坐标）；两者用独立 Redis 计数器（`escort:breach:`/`escort:missing:`）互不干扰。
 
 #### 心跳
 ```json

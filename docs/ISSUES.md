@@ -17,7 +17,7 @@
 
 | 优先级 | 已解决 | 待处理 |
 |--------|--------|--------|
-| P0（影响核心功能/安全） | ✅ 12 / 12 | 0 |
+| P0（影响核心功能/安全） | ✅ 13 / 13 | 0 |
 | P1（重要，应修） | ✅ 20 / 20 | 0 |
 | P2（增强/优化） | ✅ 9 / 9 | 2（T2/T3 文档缺口） |
 
@@ -29,6 +29,15 @@
 ---
 
 ## ✅ 已解决
+
+### [P0] S18 · 订单状态变更 WebSocket 从未推 ORDER_STATUS_CHANGED（盲人+志愿者双端收不到） — `2026-07-23` 【已确证】
+
+- **问题**：`docs/websocket-protocol.md` 约定了 `ORDER_STATUS_CHANGED`（`{type, messageId, orderId, fromStatus, toStatus, message, ttsText, priority, timestamp}`）消息，但整个后端代码库从未实现该 type（全仓 grep 零命中）。`OrderLifecycleService` 的 4 个状态推进点（`driverEnRoute`/`driverArrived`/`startService`/`finishOrder`）只调 `notifyBlindUser`，发的是 `type=APP_NOTIFICATION`+`eventType=DRIVER_EN_ROUTE` 等模板通知，**且只发给盲人一人**，志愿者侧零推送，消息体也不带 `orderId/fromStatus/toStatus`。
+- **影响**：HTTP 状态转换成功，但盲人和志愿者 WebSocket 都收不到合法的结构化状态变更事件，前端订单状态机无法由 WS 驱动。WS 管道/JWT/`UnifiedSessionRegistry`/跨实例 Redis 投递均已排查可靠，根因是契约未实现。
+- **方案**：`NotificationService` 新增 `sendOrderStatusChanged(orderId, blindUserId, volunteerId, fromStatus, toStatus, message, ttsText)`，直接构造 `ORDER_STATUS_CHANGED` 信封（复用 `buildEnvelope`，**不走模板**，规避生产 `data.sql` 不跑导致 `sendNotification` 静默 `return null` 的陷阱），向盲人+志愿者各发一条并写 `notification_logs`；`OrderLifecycleService` 抽 `notifyStatusChanged` helper，在 4 个状态推进点追加双发，**保留**既有 `notifyBlindUser` 模板通知（TTS 语音播报来源不变）。
+- **涉及文件**：`NotificationService`、`OrderLifecycleService`、`NotificationServiceTest`
+- **验证**：`gradlew test --tests NotificationServiceTest`（含 2 个新增 ORDER_STATUS_CHANGED envelope 断言）+ 订单流程集成回归全绿。线上 trace 凭证：信封内 `messageId`（UUID）+ `notification_logs`（每次状态变更 2 行：盲人+志愿者）。
+- **部署**：不新增 DB 列/表/模板，生产零迁移，重启 `blindrun` 即生效。
 
 ### [P0] S13 · 紧急事件 WS 广播泄露原始 GPS 给全体客服 — `2026-07-19` 【已确证】
 
